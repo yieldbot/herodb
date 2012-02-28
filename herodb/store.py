@@ -204,9 +204,8 @@ class Store(object):
 
         def build_tree(path):
             if path:
-                try:
-                    tree = self._get_object(path)
-                except KeyError:
+                tree = self._get_object(path)
+                if not tree:
                     tree = Tree()
             else:
                 tree = root_tree
