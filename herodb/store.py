@@ -4,6 +4,7 @@ from dulwich.object_store import tree_lookup_path
 from dulwich.index import pathjoin, pathsplit
 import os
 import stat
+import collections
 
 class Store(object):
     """
@@ -63,14 +64,14 @@ class Store(object):
         """
         Add/Update many key value pairs in the store.  The entries param should be a python
         dict containing one or more key value pairs to store.  The keys can be nested
-        paths of objects to set.  Nested dicts are not yet supported.
+        paths of objects to set.
 
         :param entries: A python dict containing one or more key/value pairs to store.
         """
         root_tree = self._get_object('')
         blobs=[]
         msg = ''
-        for (key, value) in entries.iteritems():
+        for (key, value) in flatten(entries).iteritems():
             blob = Blob.from_string(str(value))
             self.repo.object_store.add_object(blob)
             blobs.append((key, blob.id, stat.S_IFREG))
@@ -190,7 +191,7 @@ class Store(object):
                 return trees[path]
             dirname, basename = pathsplit(path)
             t = add_tree(dirname)
-            assert isinstance(basename, str)
+            assert isinstance(basename, basestring)
             newtree = {}
             t[basename] = newtree
             trees[path] = newtree
@@ -219,5 +220,15 @@ class Store(object):
             self.repo.object_store.add_object(tree)
             return tree.id
         return build_tree("")
+
+def flatten(d, parent_key='', sep='/'):
+    items = []
+    for k, v in d.items():
+        new_key = parent_key + sep + k if parent_key else k
+        if isinstance(v, collections.MutableMapping):
+            items.extend(flatten(v, new_key, sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
 
   
