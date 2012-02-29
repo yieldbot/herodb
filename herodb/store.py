@@ -87,20 +87,28 @@ class Store(object):
 
         :param key: The key to remove from the store.
         """
-        root_tree = self._get_object('')
-        (tree_key, blob_key) = pathsplit(key)
-        if tree_key:
-            tree = self._get_object(tree_key)
-            del tree[blob_key]
+        trees={}
+        path = key
+        while(path):
+            (path, name) = pathsplit(path)
+            trees[path] = self._get_object(path)
+        (path, name) = pathsplit(key)
+        del trees[path][name]
+        if path:
+            while(path):
+                (parent_path, name) = pathsplit(path)
+                trees[parent_path].add(name, stat.S_IFREG, trees[path].id)
+                self.repo.object_store.add_object(trees[path])
+                path = parent_path
+            self.repo.object_store.add_object(trees[''])
         else:
-            del root_tree[blob_key]
-        self.repo.object_store.add_object(root_tree)
-        self.repo.do_commit(tree=root_tree.id, message="Delete %s" % key)
+            self.repo.object_store.add_object(trees[''])
+        self.repo.do_commit(tree=trees[''].id, message="Delete %s" % key)
 
     def _repo_tree(self, commit_sha):
         return self.repo[commit_sha].tree
 
-    def keys(self, path='', filter_by=None, rev='HEAD'):
+    def keys(self, path='', filter_by=None, rev='HEAD', deep=True):
         """
         Returns a list of keys from the store.  The path param can be used to scope the
         request to return keys from a subset of the tree.  The filter_by param can be used
@@ -120,7 +128,7 @@ class Store(object):
             filter_fn = lambda tree_entry: isinstance(tree_entry[1], Tree)
         else:
             filter_fn = None
-        return map(lambda x: x[0], filter(filter_fn, self.iteritems(path=path, rev=rev)))
+        return map(lambda x: x[0], filter(filter_fn, self.iteritems(path=path, rev=rev, deep=deep)))
 
     def iteritems(self, path='', tree=None, rev='HEAD', deep=True):
         """
@@ -206,6 +214,9 @@ class Store(object):
             if path:
                 tree = self._get_object(path)
                 if not tree:
+                    tree = Tree()
+                if not isinstance(tree, Tree):
+                    self.delete(path)
                     tree = Tree()
             else:
                 tree = root_tree
