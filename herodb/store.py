@@ -5,13 +5,14 @@ from dulwich.index import pathjoin, pathsplit
 import os
 import stat
 import collections
+import json
 
 class Store(object):
     """
     A simple key/value store using git as the backing store.
     """
 
-    def __init__(self, repo_path):
+    def __init__(self, repo_path, serializer=None):
         if os.path.exists(repo_path):
             self.repo = Repo(repo_path)
         else:
@@ -19,6 +20,10 @@ class Store(object):
             tree = Tree()
             self.repo.object_store.add_object(tree)
             self.repo.do_commit(tree=tree.id, message="Initial version")
+        if not serializer:
+            self.serializer = json
+        else:
+            self.serializer = serializer
 
     def get(self, key, rev='HEAD'):
         """
@@ -34,7 +39,7 @@ class Store(object):
         obj = self._get_object(key, rev)
         if obj:
             if isinstance(obj, Blob):
-                return obj.data
+                return self.serializer.loads(str(obj.data))
             elif isinstance(obj, Tree):
                 return self.to_dict(tree=obj)
         return None
@@ -49,18 +54,7 @@ class Store(object):
             # TODO: log at warn or debug level
             return None
 
-    def put(self, key, value):
-        """
-        Add/Update a single key value pair to the store.  The key param can be a nested path
-        location such as 'a/b/c'.  In that case, the intermediate Trees, a and b will be
-        created as needed on the fly.
-
-        :param key: The key to set in the store
-        :param value: The value to set in the store
-        """
-        self.put_many({key: value})
-
-    def put_many(self, entries):
+    def put(self, entries, flatten_keys=True):
         """
         Add/Update many key value pairs in the store.  The entries param should be a python
         dict containing one or more key value pairs to store.  The keys can be nested
@@ -68,11 +62,14 @@ class Store(object):
 
         :param entries: A python dict containing one or more key/value pairs to store.
         """
+        e = entries
+        if flatten_keys:
+            e = flatten(e)
         root_tree = self._get_object('')
         blobs=[]
         msg = ''
-        for (key, value) in flatten(entries).iteritems():
-            blob = Blob.from_string(str(value))
+        for (key, value) in e.iteritems():
+            blob = Blob.from_string(self.serializer.dumps(value))
             self.repo.object_store.add_object(blob)
             blobs.append((key, blob.id, stat.S_IFREG))
             msg += "Put %s\n" % key
@@ -89,13 +86,13 @@ class Store(object):
         """
         trees={}
         path = key
-        while(path):
+        while path:
             (path, name) = pathsplit(path)
             trees[path] = self._get_object(path)
         (path, name) = pathsplit(key)
         del trees[path][name]
         if path:
-            while(path):
+            while path:
                 (parent_path, name) = pathsplit(path)
                 trees[parent_path].add(name, stat.S_IFREG, trees[path].id)
                 self.repo.object_store.add_object(trees[path])
@@ -181,7 +178,7 @@ class Store(object):
         for (path, obj) in self.iteritems(path, tree, rev, deep=False):
             (dn,bn) = pathsplit(path)
             if isinstance(obj, Blob):
-                doc[bn] = obj.data
+                doc[bn] = self.serializer.loads(str(obj.data))
             elif isinstance(obj, Tree):
                 doc[bn] = self.to_dict(path, obj, rev)
         return doc
