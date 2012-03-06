@@ -210,7 +210,7 @@ class Store(object):
                         for te in self._entries(key, obj, pattern, depth-1):
                             yield te
 
-    def trees(self, path=ROOT_PATH, pattern=None, depth=None, branch='master'):
+    def trees(self, path=ROOT_PATH, pattern=None, depth=None, object_depth=None, branch='master'):
         """
         Returns a python dict representation of the store.  The resulting dict can be
         scoped to a particular subtree in the store with the tree or path params.  The
@@ -229,7 +229,7 @@ class Store(object):
         """
         tree = {}
         for path, value in self.entries(path, pattern, depth, branch):
-            expand_tree(path, value, tree)
+            expand_tree(path, value, tree, object_depth)
         return tree
 
     def _tree_entry_key(self, path, tree_entry):
@@ -302,9 +302,16 @@ def flatten(d, parent_key=ROOT_PATH, sep='/'):
             items.append((new_key, v))
     return dict(items)
 
-def expand_tree(key, value, results):
-    paths = key.split('/')
-    d = results
+def expand_tree(key, value, results, object_depth=None):
+    if object_depth:
+        paths = key.rsplit('/', object_depth)
+        dirname, paths = paths[0], paths[1:]
+        if not dirname in results:
+            results[dirname] = {}
+        d = results[dirname]
+    else:
+        paths = key.split('/')
+        d = results
     i = 0
     pathlen = len(paths)
     for k in paths:
@@ -315,5 +322,6 @@ def expand_tree(key, value, results):
             else:
                 d[k] = {}
         d = d[k]
+    return results
 
   

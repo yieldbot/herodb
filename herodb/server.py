@@ -56,7 +56,7 @@ def trees(store, path=ROOT_PATH):
     pattern = _get_match_pattern()
     depth   = _get_depth()
     branch  = _get_branch()
-    return _get_store(store).trees(path, pattern, depth, branch)
+    return _get_store(store).trees(path, pattern, depth, None, branch)
 
 def _get_match_pattern():
     pattern = _query_param('pattern', None)
