@@ -110,6 +110,25 @@ def test_sparse_trees():
     t = store.trees(pattern=re.compile('a'), depth=3)
     nt.assert_true('a' in t)
 
+def test_branch_merge():
+    store.put('foo', 'bar')
+    nt.assert_equal(store.get('foo'), "bar")
+    store.put('foo', 'foo', branch='b1')
+    nt.assert_equal(store.get('foo', branch='b1'), "foo")
+    store.merge('b1')
+    nt.assert_equal(store.get('foo'), "foo")
+    store.delete('foo', branch='b1')
+    nt.assert_equal(store.get('foo', branch='b1'), None)
+    store.merge('b1')
+    nt.assert_equal(store.get('foo'), None)
+    store.put('bar', 'bar')
+    nt.assert_equal(store.get('bar'), "bar")
+    store.delete('bar', branch='b2')
+    nt.assert_equal(store.get('bar'), "bar")
+    nt.assert_equal(store.get('bar', branch='b2'), None)
+    store.merge('b2')
+    nt.assert_equal(store.get('bar'), None)
+
 
 def check_type_and_value(v, ev, et):
     nt.assert_equal(type(v), et)

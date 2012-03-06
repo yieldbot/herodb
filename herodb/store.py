@@ -2,6 +2,7 @@ from dulwich.repo import Repo
 from dulwich.objects import Tree, Blob
 from dulwich.object_store import tree_lookup_path
 from dulwich.index import pathjoin, pathsplit
+from dulwich import diff_tree
 import os
 import stat
 import collections
@@ -29,7 +30,30 @@ class Store(object):
         else:
             self.serializer = serializer
 
-    def get(self, key, rev='HEAD'):
+    def merge(self, source_branch, target_branch='master'):
+        if source_branch == target_branch:
+            raise ValueError("Cannot merge branch with itself %s" % source_branch)
+        target_tree = self._get_object(ROOT_PATH, target_branch)
+        branch_tree = self._get_object(ROOT_PATH, source_branch)
+        for tc in diff_tree.tree_changes(self.repo.object_store, target_tree.id, branch_tree.id):
+            print tc
+            if tc.type == diff_tree.CHANGE_ADD:
+                self._add_tree(target_tree, ((tc.new.path, tc.new.sha, tc.new.mode),))
+            if tc.type == diff_tree.CHANGE_COPY:
+                pass
+            if tc.type == diff_tree.CHANGE_DELETE:
+                target_tree = self._delete(tc.old.path, target_branch)
+            if tc.type == diff_tree.CHANGE_MODIFY:
+                self._add_tree(target_tree, ((tc.new.path, tc.new.sha, tc.new.mode),))
+            if tc.type == diff_tree.CHANGE_RENAME:
+                pass
+            if tc.type == diff_tree.CHANGE_UNCHANGED:
+                pass
+        msg = "Merge %s to %s" % (source_branch, target_branch)
+        merge_heads = [self._branch_head(source_branch)]
+        self.repo.do_commit(tree=target_tree.id, message=msg, ref=self._branch_ref_name(target_branch), merge_heads=merge_heads)
+
+    def get(self, key, branch='master'):
         """
         Get a tree or blob from the store by key.  The key param can be paths such as 'a/b/c'.
         If the key requested represents a Tree in the git db, then a document will be
@@ -37,28 +61,27 @@ class Store(object):
         in the git db, then a python string will be returned.
 
         :param key: The key to retrieve from the store
-        :param rev: The git sha1 hash of the commit to search for the requested key
+        :param branch: The branch name to search for the requested key
         :return: Either a python dict or string depending on whether the requested key points to a git Tree or Blob
         """
-        obj = self._get_object(key, rev)
+        obj = self._get_object(key, branch)
         if obj:
             if isinstance(obj, Blob):
                 return self.serializer.loads(str(obj.data))
             elif isinstance(obj, Tree):
-                return self.trees(key)
+                return self.trees(key, branch=branch)
         return None
 
-    def _get_object(self, key, rev='HEAD'):
+    def _get_object(self, key, branch='master'):
         try:
-            if rev == 'HEAD':
-                rev = self.repo.head()
+            rev = self.repo.refs[self._branch_ref_name(branch)]
             (mode, sha) = tree_lookup_path(self.repo.get_object, self._repo_tree(rev), key)
             return self.repo[sha]
         except KeyError:
             # TODO: log at warn or debug level
             return None
 
-    def put(self, key, value, flatten_keys=True):
+    def put(self, key, value, flatten_keys=True, branch='master'):
         """
         Add/Update many key value pairs in the store.  The entries param should be a python
         dict containing one or more key value pairs to store.  The keys can be nested
@@ -69,7 +92,11 @@ class Store(object):
         e = {key: value}
         if flatten_keys:
             e = flatten(e)
-        root_tree = self._get_object(ROOT_PATH)
+        root_tree = self._get_object(ROOT_PATH, branch)
+        merge_heads = []
+        if not root_tree:
+            root_tree = self._get_object(ROOT_PATH, 'master')
+            merge_heads = [self._branch_head('master')]
         blobs=[]
         msg = ''
         for (key, value) in e.iteritems():
@@ -78,9 +105,9 @@ class Store(object):
             blobs.append((key, blob.id, stat.S_IFREG))
             msg += "Put %s\n" % key
         root_id = self._add_tree(root_tree, blobs)
-        self.repo.do_commit(tree=root_id, message=msg)
+        self.repo.do_commit(tree=root_id, message=msg, ref=self._branch_ref_name(branch), merge_heads=merge_heads)
 
-    def delete(self, key):
+    def delete(self, key, branch='master'):
         """
         Delete one or more entries from the store.  The key param can refer to either
         a Tree or Blob in the store.  If it refers to a Blob, then just that entry will be
@@ -88,11 +115,21 @@ class Store(object):
 
         :param key: The key to remove from the store.
         """
+        tree = self._get_object(key, branch)
+        merge_heads = []
+        delete_branch = branch
+        if not tree:
+            merge_heads = [self._branch_head('master')]
+            delete_branch = 'master'
+        root = self._delete(key, delete_branch)
+        self.repo.do_commit(tree=root.id, message="Delete %s" % key, ref=self._branch_ref_name(branch), merge_heads=merge_heads)
+
+    def _delete(self, key, branch='master'):
         trees={}
         path = key
         while path:
             (path, name) = pathsplit(path)
-            trees[path] = self._get_object(path)
+            trees[path] = self._get_object(path, branch)
         (path, name) = pathsplit(key)
         del trees[path][name]
         if path:
@@ -104,12 +141,12 @@ class Store(object):
             self.repo.object_store.add_object(trees[ROOT_PATH])
         else:
             self.repo.object_store.add_object(trees[ROOT_PATH])
-        self.repo.do_commit(tree=trees[ROOT_PATH].id, message="Delete %s" % key)
+        return trees[ROOT_PATH]
 
     def _repo_tree(self, commit_sha):
         return self.repo[commit_sha].tree
 
-    def keys(self, path=ROOT_PATH, pattern=None, depth=None, rev='HEAD', filter_by=None):
+    def keys(self, path=ROOT_PATH, pattern=None, depth=None, branch='master', filter_by=None):
         """
         Returns a list of keys from the store.  The path param can be used to scope the
         request to return keys from a subset of the tree.  The filter_by param can be used
@@ -120,7 +157,7 @@ class Store(object):
         starts from the root of the store.
         :param filter_by: Either 'blob', 'tree' or None.  Controls what type of node key
         paths to return.  Default is None which returns all node type key paths
-        :param rev: The git sha1 hash of the commit to return key paths for.
+        :param branch: The branch name to return key paths for.
         :return: A list of keys sorted lexically.
         """
         if filter_by == 'blob':
@@ -129,14 +166,14 @@ class Store(object):
             filter_fn = lambda tree_entry: isinstance(tree_entry[1], Tree)
         else:
             filter_fn = None
-        return map(lambda x: x[0], filter(filter_fn, self.raw_entries(path, pattern, depth, rev)))
+        return map(lambda x: x[0], filter(filter_fn, self.raw_entries(path, pattern, depth, branch)))
 
-    def entries(self, path=ROOT_PATH, pattern=None, depth=None, rev='HEAD'):
-        for key, obj in self.raw_entries(path, pattern, depth, rev):
+    def entries(self, path=ROOT_PATH, pattern=None, depth=None, branch='master'):
+        for key, obj in self.raw_entries(path, pattern, depth, branch):
             if isinstance(obj, Blob):
                 yield (key, self.serializer.loads(str(obj.data)))
 
-    def raw_entries(self, path=ROOT_PATH, pattern=None, depth=None, rev='HEAD'):
+    def raw_entries(self, path=ROOT_PATH, pattern=None, depth=None, branch='master'):
         """
         Returns a generator that traverses the tree and produces entries of the form
         (tree_path, git_object), where tree_path is a string representing a key into the
@@ -147,10 +184,10 @@ class Store(object):
         :param pattern: Regex pattern to filter matching tree paths.
         :param depth: Specifies how deep to recurse when producing results.  Default is None which
         does full tree traversal.
-        :param rev: Git sha1 hash of the commit to return key paths for.  Defaults to HEAD.
+        :param branch: Git branch name to return key paths for.  Defaults to HEAD.
         :return: A generator that produces entries of the form (tree_path, git_object)
         """
-        tree = self._get_object(path, rev)
+        tree = self._get_object(path, branch)
         if not isinstance(tree, Tree):
             raise ValueError("Path %s is not a tree!" % path)
         else:
@@ -173,12 +210,12 @@ class Store(object):
                         for te in self._entries(key, obj, pattern, depth-1):
                             yield te
 
-    def trees(self, path=ROOT_PATH, pattern=None, depth=None, rev='HEAD'):
+    def trees(self, path=ROOT_PATH, pattern=None, depth=None, branch='master'):
         """
         Returns a python dict representation of the store.  The resulting dict can be
         scoped to a particular subtree in the store with the tree or path params.  The
         tree param is a git Tree object to begin from, while the path is a string key
-        to begin from.  The rev param is used to specify the git sha1 commit version
+        to begin from.  The branch param is used to specify the git branch name
         to build the dict from.
 
         :param path: Option string key to begin building the dict from.  Defaults to
@@ -186,12 +223,12 @@ class Store(object):
         :param pattern: Regex pattern to filter matching tree paths.
         :param depth: Specifies how deep to recurse when producing results.  Default is None which
         does full tree traversal.
-        :param rev: Optional git sha1 hash of the commit to return key paths for.
+        :param branch: Optional git branch name to return key paths from.
         Defaults to HEAD.
         :return: A dict represents a section of the store.
         """
         tree = {}
-        for path, value in self.entries(path, pattern, depth, rev):
+        for path, value in self.entries(path, pattern, depth, branch):
             expand_tree(path, value, tree)
         return tree
 
@@ -200,6 +237,15 @@ class Store(object):
             return "%s/%s" % (path, tree_entry.path)
         else:
             return tree_entry.path
+
+    def _branch_ref_name(self, name):
+        if name.startswith('refs/heads/'):
+            return name
+        else:
+            return "refs/heads/%s" % name
+
+    def _branch_head(self, name):
+        return self.repo.refs[self._branch_ref_name(name)]
 
     def _add_tree(self, root_tree, blobs):
         """Commit a new tree.
