@@ -15,8 +15,8 @@ def merge(store, source):
     target    = _query_param('target', 'master')
     author    = _query_param('author')
     committer = _query_param('committer')
-    s = _get_store(store, author=author, committer=committer)
-    s.merge(source, target)
+    s = _get_store(store)
+    s.merge(source, target, author=author, committer=committer)
 
 @app.get('/<store>/entry')
 @app.get('/<store>/entry/<path:path>')
@@ -32,20 +32,20 @@ def put(store, path):
     flatten_keys = _query_param('flatten_keys', True)
     author       = _query_param('author')
     committer    = _query_param('committer')
-    s = _get_store(store, author=author, committer=committer)
-    s.put(path, content, flatten_keys, branch=_get_branch())
+    s = _get_store(store)
+    s.put(path, content, flatten_keys, branch=_get_branch(), author=author, committer=committer)
 
 @app.delete('/<store>/entry/<path:path>')
 def delete(store, path):
     branch    = _get_branch()
     author    = _query_param('author')
     committer = _query_param('committer')
-    s = _get_store(store, author=author, committer=committer)
+    s = _get_store(store)
     if branch != 'master' and not s.get(path, branch):
         if not s.get(path):
             # Only raise 404 if key isn't on branch or master
             abort(404, "Not found: %s" % path)
-    s.delete(path, branch=_get_branch())
+    s.delete(path, branch=_get_branch(), author=author, committer=committer)
 
 @app.get('/<store>/keys')
 @app.get('/<store>/keys/<path:path>')
@@ -94,9 +94,11 @@ def _query_param(param, default=None):
         return request.query[param]
     return default
 
-def _get_store(id, author=None, committer=None):
+def _get_store(id):
     path = "%s/%s" % (app.config.gitstores_path, id)
-    return Store(path, author=author, committer=committer)
+    if not path in stores:
+        stores[path] = Store(path)
+    return stores[path]
 
 def make_app(stores_path='/tmp'):
     global app

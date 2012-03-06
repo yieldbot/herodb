@@ -17,26 +17,20 @@ class Store(object):
     A simple key/value store using git as the backing store.
     """
 
-    def __init__(self, repo_path, serializer=None, author=None, committer=None):
-        self.author = author
-        self.committer = committer
+    def __init__(self, repo_path, serializer=None):
         if os.path.exists(repo_path):
             self.repo = Repo(repo_path)
         else:
             self.repo = Repo.init(repo_path, mkdir=True)
             tree = Tree()
             self.repo.object_store.add_object(tree)
-            self.repo.do_commit(
-                tree=tree.id,
-                message="Initial version",
-                author=self.author,
-                committer=self.committer)
+            self.repo.do_commit(tree=tree.id, message="Initial version")
         if not serializer:
             self.serializer = json
         else:
             self.serializer = serializer
 
-    def merge(self, source_branch, target_branch='master'):
+    def merge(self, source_branch, target_branch='master', author=None, committer=None):
         if source_branch == target_branch:
             raise ValueError("Cannot merge branch with itself %s" % source_branch)
         target_tree = self._get_object(ROOT_PATH, target_branch)
@@ -61,8 +55,8 @@ class Store(object):
             message=msg,
             ref=self._branch_ref_name(target_branch),
             merge_heads=merge_heads,
-            author=self.author,
-            committer=self.committer
+            author=author,
+            committer=committer
         )
 
     def get(self, key, branch='master'):
@@ -92,7 +86,7 @@ class Store(object):
         except KeyError:
             return None
 
-    def put(self, key, value, flatten_keys=True, branch='master'):
+    def put(self, key, value, flatten_keys=True, branch='master', author=None, committer=None):
         """
         Add/Update many key value pairs in the store.  The entries param should be a python
         dict containing one or more key value pairs to store.  The keys can be nested
@@ -121,11 +115,11 @@ class Store(object):
             tree=root_id, message=msg,
             ref=self._branch_ref_name(branch),
             merge_heads=merge_heads,
-            author=self.author,
-            committer=self.committer
+            author=author,
+            committer=committer
         )
 
-    def delete(self, key, branch='master'):
+    def delete(self, key, branch='master', author=None, committer=None):
         """
         Delete one or more entries from the store.  The key param can refer to either
         a Tree or Blob in the store.  If it refers to a Blob, then just that entry will be
@@ -145,8 +139,8 @@ class Store(object):
             message="Delete %s" % key,
             ref=self._branch_ref_name(branch),
             merge_heads=merge_heads,
-            author=self.author,
-            committer=self.committer
+            author=author,
+            committer=committer
         )
 
     def _delete(self, key, branch='master'):
