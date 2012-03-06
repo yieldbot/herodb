@@ -36,7 +36,6 @@ class Store(object):
         target_tree = self._get_object(ROOT_PATH, target_branch)
         branch_tree = self._get_object(ROOT_PATH, source_branch)
         for tc in diff_tree.tree_changes(self.repo.object_store, target_tree.id, branch_tree.id):
-            print tc
             if tc.type == diff_tree.CHANGE_ADD:
                 self._add_tree(target_tree, ((tc.new.path, tc.new.sha, tc.new.mode),))
             if tc.type == diff_tree.CHANGE_COPY:
@@ -78,7 +77,6 @@ class Store(object):
             (mode, sha) = tree_lookup_path(self.repo.get_object, self._repo_tree(rev), key)
             return self.repo[sha]
         except KeyError:
-            # TODO: log at warn or debug level
             return None
 
     def put(self, key, value, flatten_keys=True, branch='master'):
@@ -87,7 +85,8 @@ class Store(object):
         dict containing one or more key value pairs to store.  The keys can be nested
         paths of objects to set.
 
-        :param entries: A python dict containing one or more key/value pairs to store.
+        :param key: The key to store the entry/entries in
+        :param value: The value to store.
         """
         e = {key: value}
         if flatten_keys:
@@ -95,7 +94,7 @@ class Store(object):
         root_tree = self._get_object(ROOT_PATH, branch)
         merge_heads = []
         if not root_tree:
-            root_tree = self._get_object(ROOT_PATH, 'master')
+            root_tree = self._get_object(ROOT_PATH)
             merge_heads = [self._branch_head('master')]
         blobs=[]
         msg = ''
