@@ -30,6 +30,13 @@ class Store(object):
         else:
             self.serializer = serializer
 
+    def create_branch(self, branch, parent=None):
+        if not parent:
+            parent = self.branch_head('master')
+        branch_ref = self._branch_ref_name(branch)
+        self.repo.refs.add_if_new(branch_ref, parent)
+        return self.branch_head(branch)
+
     def merge(self, source_branch, target_branch='master', author=None, committer=None):
         if source_branch == target_branch:
             raise ValueError("Cannot merge branch with itself %s" % source_branch)
@@ -49,8 +56,8 @@ class Store(object):
             if tc.type == diff_tree.CHANGE_UNCHANGED:
                 pass
         msg = "Merge %s to %s" % (source_branch, target_branch)
-        merge_heads = [self._branch_head(source_branch)]
-        self.repo.do_commit(
+        merge_heads = [self.branch_head(source_branch)]
+        return self.repo.do_commit(
             tree=target_tree.id,
             message=msg,
             ref=self._branch_ref_name(target_branch),
@@ -102,7 +109,7 @@ class Store(object):
         merge_heads = []
         if not root_tree:
             root_tree = self._get_object(ROOT_PATH)
-            merge_heads = [self._branch_head('master')]
+            merge_heads = [self.branch_head('master')]
         blobs=[]
         msg = ''
         for (key, value) in e.iteritems():
@@ -111,7 +118,7 @@ class Store(object):
             blobs.append((key, blob.id, stat.S_IFREG))
             msg += "Put %s\n" % key
         root_id = self._add_tree(root_tree, blobs)
-        self.repo.do_commit(
+        return self.repo.do_commit(
             tree=root_id, message=msg,
             ref=self._branch_ref_name(branch),
             merge_heads=merge_heads,
@@ -131,10 +138,10 @@ class Store(object):
         merge_heads = []
         delete_branch = branch
         if not tree:
-            merge_heads = [self._branch_head('master')]
+            merge_heads = [self.branch_head('master')]
             delete_branch = 'master'
         root = self._delete(key, delete_branch)
-        self.repo.do_commit(
+        return self.repo.do_commit(
             tree=root.id,
             message="Delete %s" % key,
             ref=self._branch_ref_name(branch),
@@ -263,7 +270,7 @@ class Store(object):
         else:
             return "refs/heads/%s" % name
 
-    def _branch_head(self, name):
+    def branch_head(self, name):
         return self.repo.refs[self._branch_ref_name(name)]
 
     def _add_tree(self, root_tree, blobs):
