@@ -10,10 +10,13 @@ app = Bottle()
 def error404(error):
     return error.output
 
-@app.post('/<store>/merge/<source_branch>')
-@app.post('/<store>/merge/<source_branch>/<target_branch>')
-def merge(store, source_branch, target_branch='master'):
-    _get_store(store).merge(source_branch, target_branch)
+@app.post('/<store>/merge/<source:path>')
+def merge(store, source):
+    target    = _query_param('target', 'master')
+    author    = _query_param('author')
+    committer = _query_param('committer')
+    s = _get_store(store, author=author, committer=committer)
+    s.merge(source, target)
 
 @app.get('/<store>/entry')
 @app.get('/<store>/entry/<path:path>')
@@ -25,13 +28,24 @@ def get(store, path=ROOT_PATH):
 
 @app.put('/<store>/entry/<path:path>')
 def put(store, path):
-    content = request.json
+    content      = request.json
     flatten_keys = _query_param('flatten_keys', True)
-    _get_store(store).put(path, content, flatten_keys, branch=_get_branch())
+    author       = _query_param('author')
+    committer    = _query_param('committer')
+    s = _get_store(store, author=author, committer=committer)
+    s.put(path, content, flatten_keys, branch=_get_branch())
 
 @app.delete('/<store>/entry/<path:path>')
 def delete(store, path):
-    _get_store(store).delete(path, branch=_get_branch())
+    branch    = _get_branch()
+    author    = _query_param('author')
+    committer = _query_param('committer')
+    s = _get_store(store, author=author, committer=committer)
+    if branch != 'master' and not s.get(path, branch):
+        if not s.get(path):
+            # Only raise 404 if key isn't on branch or master
+            abort(404, "Not found: %s" % path)
+    s.delete(path, branch=_get_branch())
 
 @app.get('/<store>/keys')
 @app.get('/<store>/keys/<path:path>')
@@ -39,7 +53,7 @@ def keys(store, path=ROOT_PATH):
     pattern   = _get_match_pattern()
     depth     = _get_depth()
     branch    = _get_branch()
-    filter_by = _query_param('filter_by', None)
+    filter_by = _query_param('filter_by')
     return {'keys': _get_store(store).keys(path, pattern, depth, branch, filter_by)}
 
 @app.get('/<store>/entries')
@@ -53,20 +67,21 @@ def entries(store, path=ROOT_PATH):
 @app.get('/<store>/trees')
 @app.get('/<store>/trees/<path:path>')
 def trees(store, path=ROOT_PATH):
-    pattern = _get_match_pattern()
-    depth   = _get_depth()
-    branch  = _get_branch()
-    return _get_store(store).trees(path, pattern, depth, None, branch)
+    pattern      = _get_match_pattern()
+    depth        = _get_depth()
+    object_depth = _query_param('object_depth')
+    branch       = _get_branch()
+    return _get_store(store).trees(path, pattern, depth, object_depth, branch)
 
 def _get_match_pattern():
-    pattern = _query_param('pattern', None)
+    pattern = _query_param('pattern')
     if not pattern:
         return MATCH_ALL
     else:
         return re.compile(pattern)
 
 def _get_depth():
-    depth = _query_param('depth', None)
+    depth = _query_param('depth')
     if depth:
         depth = int(depth)
     return depth
@@ -74,16 +89,14 @@ def _get_depth():
 def _get_branch():
     return _query_param('branch', 'master')
 
-def _query_param(param, default):
+def _query_param(param, default=None):
     if param in request.query:
         return request.query[param]
     return default
 
-def _get_store(id):
+def _get_store(id, author=None, committer=None):
     path = "%s/%s" % (app.config.gitstores_path, id)
-    if not path in stores:
-        stores[path] = Store(path)
-    return stores[path]
+    return Store(path, author=author, committer=committer)
 
 def make_app(stores_path='/tmp'):
     global app

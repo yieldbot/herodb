@@ -17,14 +17,20 @@ class Store(object):
     A simple key/value store using git as the backing store.
     """
 
-    def __init__(self, repo_path, serializer=None):
+    def __init__(self, repo_path, serializer=None, author=None, committer=None):
+        self.author = author
+        self.committer = committer
         if os.path.exists(repo_path):
             self.repo = Repo(repo_path)
         else:
             self.repo = Repo.init(repo_path, mkdir=True)
             tree = Tree()
             self.repo.object_store.add_object(tree)
-            self.repo.do_commit(tree=tree.id, message="Initial version")
+            self.repo.do_commit(
+                tree=tree.id,
+                message="Initial version",
+                author=self.author,
+                committer=self.committer)
         if not serializer:
             self.serializer = json
         else:
@@ -50,7 +56,14 @@ class Store(object):
                 pass
         msg = "Merge %s to %s" % (source_branch, target_branch)
         merge_heads = [self._branch_head(source_branch)]
-        self.repo.do_commit(tree=target_tree.id, message=msg, ref=self._branch_ref_name(target_branch), merge_heads=merge_heads)
+        self.repo.do_commit(
+            tree=target_tree.id,
+            message=msg,
+            ref=self._branch_ref_name(target_branch),
+            merge_heads=merge_heads,
+            author=self.author,
+            committer=self.committer
+        )
 
     def get(self, key, branch='master'):
         """
@@ -104,7 +117,13 @@ class Store(object):
             blobs.append((key, blob.id, stat.S_IFREG))
             msg += "Put %s\n" % key
         root_id = self._add_tree(root_tree, blobs)
-        self.repo.do_commit(tree=root_id, message=msg, ref=self._branch_ref_name(branch), merge_heads=merge_heads)
+        self.repo.do_commit(
+            tree=root_id, message=msg,
+            ref=self._branch_ref_name(branch),
+            merge_heads=merge_heads,
+            author=self.author,
+            committer=self.committer
+        )
 
     def delete(self, key, branch='master'):
         """
@@ -121,7 +140,14 @@ class Store(object):
             merge_heads = [self._branch_head('master')]
             delete_branch = 'master'
         root = self._delete(key, delete_branch)
-        self.repo.do_commit(tree=root.id, message="Delete %s" % key, ref=self._branch_ref_name(branch), merge_heads=merge_heads)
+        self.repo.do_commit(
+            tree=root.id,
+            message="Delete %s" % key,
+            ref=self._branch_ref_name(branch),
+            merge_heads=merge_heads,
+            author=self.author,
+            committer=self.committer
+        )
 
     def _delete(self, key, branch='master'):
         trees={}
