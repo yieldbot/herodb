@@ -35,7 +35,7 @@ class Store(object):
             parent = self.branch_head('master')
         branch_ref = self._branch_ref_name(branch)
         self.repo.refs.add_if_new(branch_ref, parent)
-        return self.branch_head(branch)
+        return {'sha': self.branch_head(branch)}
 
     def merge(self, source_branch, target_branch='master', author=None, committer=None):
         if source_branch == target_branch:
@@ -57,7 +57,7 @@ class Store(object):
                 pass
         msg = "Merge %s to %s" % (source_branch, target_branch)
         merge_heads = [self.branch_head(source_branch)]
-        return self.repo.do_commit(
+        sha = self.repo.do_commit(
             tree=target_tree.id,
             message=msg,
             ref=self._branch_ref_name(target_branch),
@@ -65,6 +65,7 @@ class Store(object):
             author=author,
             committer=committer
         )
+        return {'sha': sha}
 
     def get(self, key, branch='master'):
         """
@@ -80,7 +81,7 @@ class Store(object):
         obj = self._get_object(key, branch)
         if obj:
             if isinstance(obj, Blob):
-                return self.serializer.loads(str(obj.data))
+                return self.serializer.loads(obj.data)
             elif isinstance(obj, Tree):
                 return self.trees(key, branch=branch)
         return None
@@ -118,13 +119,14 @@ class Store(object):
             blobs.append((key, blob.id, stat.S_IFREG))
             msg += "Put %s\n" % key
         root_id = self._add_tree(root_tree, blobs)
-        return self.repo.do_commit(
+        sha = self.repo.do_commit(
             tree=root_id, message=msg,
             ref=self._branch_ref_name(branch),
             merge_heads=merge_heads,
             author=author,
             committer=committer
         )
+        return {'sha': sha}
 
     def delete(self, key, branch='master', author=None, committer=None):
         """
@@ -141,7 +143,7 @@ class Store(object):
             merge_heads = [self.branch_head('master')]
             delete_branch = 'master'
         root = self._delete(key, delete_branch)
-        return self.repo.do_commit(
+        sha = self.repo.do_commit(
             tree=root.id,
             message="Delete %s" % key,
             ref=self._branch_ref_name(branch),
@@ -149,6 +151,7 @@ class Store(object):
             author=author,
             committer=committer
         )
+        return {'sha': sha}
 
     def _delete(self, key, branch='master'):
         trees={}

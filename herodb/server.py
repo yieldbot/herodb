@@ -2,6 +2,8 @@ from bottle import Bottle, run, request, abort
 from store import Store, MATCH_ALL, ROOT_PATH
 import re
 import sys
+import types
+import json
 
 stores = {}
 app = Bottle()
@@ -10,13 +12,23 @@ app = Bottle()
 def error404(error):
     return error.output
 
+@app.post('/<store>/branch/<branch:path>')
+def create_branch(store, branch):
+    s = _get_store(store)
+    return s.create_branch(branch)
+
+@app.get('/<store>/branch/<branch:path>')
+def get_branch(store, branch):
+    s = _get_store(store)
+    return {'branch': branch, 'sha': s.branch_head(branch)}
+
 @app.post('/<store>/merge/<source:path>')
 def merge(store, source):
     target    = _query_param('target', 'master')
     author    = _query_param('author')
     committer = _query_param('committer')
     s = _get_store(store)
-    s.merge(source, target, author=author, committer=committer)
+    return s.merge(source, target, author=author, committer=committer)
 
 @app.get('/<store>/entry')
 @app.get('/<store>/entry/<path:path>')
@@ -24,6 +36,8 @@ def get(store, path=ROOT_PATH):
     value = _get_store(store).get(path, branch=_get_branch())
     if not value:
         abort(404, "Not found: %s" % path)
+    if type(value) != types.DictType:
+        value = json.dumps(value)
     return value
 
 @app.put('/<store>/entry/<path:path>')
@@ -33,7 +47,7 @@ def put(store, path):
     author       = _query_param('author')
     committer    = _query_param('committer')
     s = _get_store(store)
-    s.put(path, content, flatten_keys, branch=_get_branch(), author=author, committer=committer)
+    return s.put(path, content, flatten_keys, branch=_get_branch(), author=author, committer=committer)
 
 @app.delete('/<store>/entry/<path:path>')
 def delete(store, path):
@@ -45,7 +59,7 @@ def delete(store, path):
         if not s.get(path):
             # Only raise 404 if key isn't on branch or master
             abort(404, "Not found: %s" % path)
-    s.delete(path, branch=_get_branch(), author=author, committer=committer)
+    return s.delete(path, branch=_get_branch(), author=author, committer=committer)
 
 @app.get('/<store>/keys')
 @app.get('/<store>/keys/<path:path>')
@@ -69,7 +83,7 @@ def entries(store, path=ROOT_PATH):
 def trees(store, path=ROOT_PATH):
     pattern      = _get_match_pattern()
     depth        = _get_depth()
-    object_depth = _query_param('object_depth')
+    object_depth = _get_object_depth()
     branch       = _get_branch()
     return _get_store(store).trees(path, pattern, depth, object_depth, branch)
 
@@ -85,6 +99,12 @@ def _get_depth():
     if depth:
         depth = int(depth)
     return depth
+
+def _get_object_depth():
+    object_depth = _query_param('object_depth')
+    if object_depth:
+        object_depth = int(object_depth)
+    return object_depth
 
 def _get_branch():
     return _query_param('branch', 'master')
