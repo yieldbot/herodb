@@ -67,7 +67,7 @@ class Store(object):
         )
         return {'sha': sha}
 
-    def get(self, key, shallow=False, branch='master'):
+    def get(self, key, shallow=False, branch='master', commit_sha=None):
         """
         Get a tree or blob from the store by key.  The key param can be paths such as 'a/b/c'.
         If the key requested represents a Tree in the git db, then a document will be
@@ -78,7 +78,7 @@ class Store(object):
         :param branch: The branch name to search for the requested key
         :return: Either a python dict or string depending on whether the requested key points to a git Tree or Blob
         """
-        obj = self._get_object(key, branch)
+        obj = self._get_object(key, branch, commit_sha)
         if obj:
             if isinstance(obj, Blob):
                 return self.serializer.loads(obj.data)
@@ -94,10 +94,11 @@ class Store(object):
                 return tree
         return None
 
-    def _get_object(self, key, branch='master'):
+    def _get_object(self, key, branch='master', commit_sha=None):
         try:
-            rev = self.repo.refs[self._branch_ref_name(branch)]
-            (mode, sha) = tree_lookup_path(self.repo.get_object, self._repo_tree(rev), key)
+            if not commit_sha:
+                commit_sha = self.branch_head(branch)
+            (mode, sha) = tree_lookup_path(self.repo.get_object, self._repo_tree(commit_sha), key)
             return self.repo[sha]
         except KeyError:
             return None
@@ -183,7 +184,7 @@ class Store(object):
     def _repo_tree(self, commit_sha):
         return self.repo[commit_sha].tree
 
-    def keys(self, path=ROOT_PATH, pattern=None, depth=None, branch='master', filter_by=None):
+    def keys(self, path=ROOT_PATH, pattern=None, depth=None, filter_by=None, branch='master', commit_sha=None):
         """
         Returns a list of keys from the store.  The path param can be used to scope the
         request to return keys from a subset of the tree.  The filter_by param can be used
@@ -203,14 +204,14 @@ class Store(object):
             filter_fn = lambda tree_entry: isinstance(tree_entry[1], Tree)
         else:
             filter_fn = None
-        return map(lambda x: x[0], filter(filter_fn, self.raw_entries(path, pattern, depth, branch)))
+        return map(lambda x: x[0], filter(filter_fn, self.raw_entries(path, pattern, depth, branch, commit_sha)))
 
-    def entries(self, path=ROOT_PATH, pattern=None, depth=None, branch='master'):
-        for key, obj in self.raw_entries(path, pattern, depth, branch):
+    def entries(self, path=ROOT_PATH, pattern=None, depth=None, branch='master', commit_sha=None):
+        for key, obj in self.raw_entries(path, pattern, depth, branch, commit_sha):
             if isinstance(obj, Blob):
                 yield (key, self.serializer.loads(str(obj.data)))
 
-    def raw_entries(self, path=ROOT_PATH, pattern=None, depth=None, branch='master'):
+    def raw_entries(self, path=ROOT_PATH, pattern=None, depth=None, branch='master', commit_sha=None):
         """
         Returns a generator that traverses the tree and produces entries of the form
         (tree_path, git_object), where tree_path is a string representing a key into the
@@ -224,7 +225,7 @@ class Store(object):
         :param branch: Git branch name to return key paths for.  Defaults to HEAD.
         :return: A generator that produces entries of the form (tree_path, git_object)
         """
-        tree = self._get_object(path, branch)
+        tree = self._get_object(path, branch, commit_sha)
         if not isinstance(tree, Tree):
             raise ValueError("Path %s is not a tree!" % path)
         else:
@@ -247,7 +248,7 @@ class Store(object):
                         for te in self._entries(key, obj, pattern, depth-1):
                             yield te
 
-    def trees(self, path=ROOT_PATH, pattern=None, depth=None, object_depth=None, branch='master'):
+    def trees(self, path=ROOT_PATH, pattern=None, depth=None, object_depth=None, branch='master', commit_sha=None):
         """
         Returns a python dict representation of the store.  The resulting dict can be
         scoped to a particular subtree in the store with the tree or path params.  The
@@ -265,7 +266,7 @@ class Store(object):
         :return: A dict represents a section of the store.
         """
         tree = {}
-        for path, value in self.entries(path, pattern, depth, branch):
+        for path, value in self.entries(path, pattern, depth, branch, commit_sha):
             expand_tree(path, value, tree, object_depth)
         return tree
 

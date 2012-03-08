@@ -26,9 +26,9 @@ class StoreClient(object):
         if response.status_int == 200:
             return json.loads(response.body_string())
 
-    def get(self, key=None, shallow=False, branch='master'):
+    def get(self, key=None, shallow=False, branch='master', commit_sha=None):
         path = _entry_path(key)
-        params = _build_params(shallow=shallow, branch=branch)
+        params = _build_params(shallow=shallow, branch=branch, commit_sha=commit_sha)
         response = self.resource.get(path, params_dict=params)
         if response.status_int == 200:
             response_body = response.body_string()
@@ -50,23 +50,23 @@ class StoreClient(object):
         if response.status_int == 200:
             return json.loads(response.body_string())
 
-    def keys(self, key=None, pattern=None, depth=None, branch='master', filter_by=None):
+    def keys(self, key=None, pattern=None, depth=None, filter_by=None, branch='master', commit_sha=None):
         path = _build_path("/keys", key)
-        params = _build_params(branch=branch, pattern=pattern, depth=depth, filter_by=filter_by)
+        params = _build_params(pattern=pattern, depth=depth, filter_by=filter_by, branch=branch, commit_sha=commit_sha)
         response = self.resource.get(path, params_dict=params)
         if response.status_int == 200:
             return json.loads(response.body_string())
 
-    def entries(self, key=None, pattern=None, depth=None, branch='master'):
+    def entries(self, key=None, pattern=None, depth=None, branch='master', commit_sha=None):
         path = _build_path("/entries", key)
-        params = _build_params(branch=branch, pattern=pattern, depth=depth)
+        params = _build_params(pattern=pattern, depth=depth, branch=branch, commit_sha=commit_sha)
         response = self.resource.get(path, params_dict=params)
         if response.status_int == 200:
             return json.loads(response.body_string())
 
-    def trees(self, key=None, pattern=None, depth=None, object_depth=None, branch='master'):
+    def trees(self, key=None, pattern=None, depth=None, object_depth=None, branch='master', commit_sha=None):
         path = _build_path("/trees", key)
-        params = _build_params(branch=branch, pattern=pattern, depth=depth, object_depth=object_depth)
+        params = _build_params(pattern=pattern, depth=depth, object_depth=object_depth, branch=branch, commit_sha=commit_sha)
         response = self.resource.get(path, params_dict=params)
         if response.status_int == 200:
             return json.loads(response.body_string())

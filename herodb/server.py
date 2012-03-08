@@ -33,8 +33,10 @@ def merge(store, source):
 @app.get('/<store>/entry')
 @app.get('/<store>/entry/<path:path>')
 def get(store, path=ROOT_PATH):
-    shallow = _query_param('shallow', False)
-    value = _get_store(store).get(path, shallow=shallow, branch=_get_branch())
+    shallow    = _query_param('shallow', False)
+    branch     = _get_branch()
+    commit_sha = _get_commit_sha()
+    value = _get_store(store).get(path, shallow=shallow, branch=branch, commit_sha=commit_sha)
     if not value:
         abort(404, "Not found: %s" % path)
     if type(value) != types.DictType:
@@ -45,10 +47,11 @@ def get(store, path=ROOT_PATH):
 def put(store, path):
     content      = request.json
     flatten_keys = _query_param('flatten_keys', True)
+    branch       = _get_branch()
     author       = _query_param('author')
     committer    = _query_param('committer')
     s = _get_store(store)
-    return s.put(path, content, flatten_keys, branch=_get_branch(), author=author, committer=committer)
+    return s.put(path, content, flatten_keys, branch=branch, author=author, committer=committer)
 
 @app.delete('/<store>/entry/<path:path>')
 def delete(store, path):
@@ -60,24 +63,26 @@ def delete(store, path):
         if not s.get(path):
             # Only raise 404 if key isn't on branch or master
             abort(404, "Not found: %s" % path)
-    return s.delete(path, branch=_get_branch(), author=author, committer=committer)
+    return s.delete(path, branch=branch, author=author, committer=committer)
 
 @app.get('/<store>/keys')
 @app.get('/<store>/keys/<path:path>')
 def keys(store, path=ROOT_PATH):
-    pattern   = _get_match_pattern()
-    depth     = _get_depth()
-    branch    = _get_branch()
-    filter_by = _query_param('filter_by')
-    return {'keys': _get_store(store).keys(path, pattern, depth, branch, filter_by)}
+    pattern    = _get_match_pattern()
+    depth      = _get_depth()
+    filter_by  = _query_param('filter_by')
+    branch     = _get_branch()
+    commit_sha = _get_commit_sha()
+    return {'keys': _get_store(store).keys(path, pattern, depth, filter_by, branch, commit_sha)}
 
 @app.get('/<store>/entries')
 @app.get('/<store>/entries/<path:path>')
 def entries(store, path=ROOT_PATH):
-    pattern = _get_match_pattern()
-    depth   = _get_depth()
-    branch  = _get_branch()
-    return {'entries': tuple(_get_store(store).entries(path, pattern, depth, branch))}
+    pattern    = _get_match_pattern()
+    depth      = _get_depth()
+    branch     = _get_branch()
+    commit_sha = _get_commit_sha()
+    return {'entries': tuple(_get_store(store).entries(path, pattern, depth, branch, commit_sha))}
 
 @app.get('/<store>/trees')
 @app.get('/<store>/trees/<path:path>')
@@ -86,7 +91,8 @@ def trees(store, path=ROOT_PATH):
     depth        = _get_depth()
     object_depth = _get_object_depth()
     branch       = _get_branch()
-    return _get_store(store).trees(path, pattern, depth, object_depth, branch)
+    commit_sha   = _get_commit_sha()
+    return _get_store(store).trees(path, pattern, depth, object_depth, branch, commit_sha)
 
 def _get_match_pattern():
     pattern = _query_param('pattern')
@@ -109,6 +115,9 @@ def _get_object_depth():
 
 def _get_branch():
     return _query_param('branch', 'master')
+
+def _get_commit_sha():
+    return _query_param('commit_sha')
 
 def _query_param(param, default=None):
     if param in request.query:
