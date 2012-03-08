@@ -4,6 +4,7 @@ import re
 import sys
 import types
 import json
+import os
 
 stores = {}
 app = Bottle()
@@ -11,6 +12,15 @@ app = Bottle()
 @app.error(404)
 def error404(error):
     return error.output
+
+@app.get('/stores')
+def get_stores():
+    stores = []
+    stores_path = app.config.gitstores_path
+    for path in os.listdir(stores_path):
+        if os.path.exists("%s/%s/.git" % (stores_path, path)):
+            stores.append(path)
+    return {'stores': stores}
 
 @app.post('/<store>/branch/<branch:path>')
 def create_branch(store, branch):
