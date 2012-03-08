@@ -33,7 +33,8 @@ def merge(store, source):
 @app.get('/<store>/entry')
 @app.get('/<store>/entry/<path:path>')
 def get(store, path=ROOT_PATH):
-    value = _get_store(store).get(path, branch=_get_branch())
+    shallow = _query_param('shallow', False)
+    value = _get_store(store).get(path, shallow=shallow, branch=_get_branch())
     if not value:
         abort(404, "Not found: %s" % path)
     if type(value) != types.DictType:

@@ -67,7 +67,7 @@ class Store(object):
         )
         return {'sha': sha}
 
-    def get(self, key, branch='master'):
+    def get(self, key, shallow=False, branch='master'):
         """
         Get a tree or blob from the store by key.  The key param can be paths such as 'a/b/c'.
         If the key requested represents a Tree in the git db, then a document will be
@@ -83,7 +83,15 @@ class Store(object):
             if isinstance(obj, Blob):
                 return self.serializer.loads(obj.data)
             elif isinstance(obj, Tree):
-                return self.trees(key, branch=branch)
+                keys = key.split('/')
+                depth = None
+                if shallow:
+                    depth = len(keys)
+                tree = self.trees(key, depth=depth, branch=branch)
+                if '/' in key:
+                    for k in keys:
+                        tree = tree[k]
+                return tree
         return None
 
     def _get_object(self, key, branch='master'):

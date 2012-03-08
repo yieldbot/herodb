@@ -26,9 +26,9 @@ class StoreClient(object):
         if response.status_int == 200:
             return json.loads(response.body_string())
 
-    def get(self, key=None, branch='master'):
+    def get(self, key=None, shallow=False, branch='master'):
         path = _entry_path(key)
-        params = _build_params(branch=branch)
+        params = _build_params(shallow=shallow, branch=branch)
         response = self.resource.get(path, params_dict=params)
         if response.status_int == 200:
             response_body = response.body_string()
