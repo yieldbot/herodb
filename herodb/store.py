@@ -165,11 +165,18 @@ class Store(object):
     def _delete(self, key, branch='master'):
         trees={}
         path = key
-        while path:
-            (path, name) = pathsplit(path)
-            trees[path] = self._get_object(path, branch)
+        if path:
+            while path:
+                (path, name) = pathsplit(path)
+                trees[path] = self._get_object(path, branch)
+        else:
+            trees[ROOT_PATH] = self._get_object(ROOT_PATH, branch)
         (path, name) = pathsplit(key)
-        del trees[path][name]
+        if name:
+            del trees[path][name]
+        else:
+            for entry in trees[path].iteritems():
+                del trees[path][entry.path]
         if path:
             while path:
                 (parent_path, name) = pathsplit(path)

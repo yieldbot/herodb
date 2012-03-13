@@ -85,7 +85,7 @@ def _build_path(store, prefix, path=None):
     if path:
         return "/%s/%s/%s" % (store, prefix, path)
     else:
-        return "/%s/%s" % (store, prefix)
+        return "/%s/%s/" % (store, prefix)
 
 def _build_params(**kwargs):
     params = {}
