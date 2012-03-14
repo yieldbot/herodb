@@ -1,4 +1,4 @@
-from ybot import gitstore
+from ybot.gitstore.store import Store
 import os
 import shutil
 from nose import tools as nt
@@ -12,10 +12,10 @@ store = None
 def setUp():
     _remove_files([TEST_REPO])
     global store
-    store = gitstore.Store(TEST_REPO)
+    store = Store(TEST_REPO)
 
 def tearDown():
-    store=gitstore.Store(TEST_REPO)
+    store = Store(TEST_REPO)
     for key in store.keys(filter_by='tree', depth=1):
         store.delete(key)
     store = None
