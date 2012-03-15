@@ -180,7 +180,7 @@ class Store(object):
         if path:
             while path:
                 (parent_path, name) = pathsplit(path)
-                trees[parent_path].add(name, stat.S_IFREG, trees[path].id)
+                trees[parent_path].add(name, stat.S_IFDIR, trees[path].id)
                 self.repo.object_store.add_object(trees[path])
                 path = parent_path
             self.repo.object_store.add_object(trees[ROOT_PATH])
