@@ -3,10 +3,11 @@ import json
 
 class StoreClient(object):
 
-    def __init__(self, endpoint, **kwargs):
+    def __init__(self, endpoint, name, **kwargs):
         if endpoint.endswith('/'):
             endpoint = endpoint.rstrip('/')
         self.resource = Resource(endpoint, **kwargs)
+        self.name = name
 
     def get_stores(self):
         response = self.resource.get("/stores")
