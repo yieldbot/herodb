@@ -1,4 +1,5 @@
-from restkit import Resource
+from restkit import Resource, Connection
+from socketpool import ConnectionPool
 import json
 
 class StoreClient(object):
@@ -6,6 +7,8 @@ class StoreClient(object):
     def __init__(self, endpoint, name, **kwargs):
         if endpoint.endswith('/'):
             endpoint = endpoint.rstrip('/')
+        if 'pool' not in kwargs:
+            kwargs['pool'] = ConnectionPool(factory=Connection, max_size=10)
         self.resource = Resource(endpoint, **kwargs)
         self.name = name
 
