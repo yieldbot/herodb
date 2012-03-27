@@ -88,7 +88,7 @@ class Store(object):
                 if shallow:
                     depth = len(keys)
                 tree = self.trees(key, depth=depth, branch=branch)
-                if '/' in key:
+                if keys != [ROOT_PATH]:
                     for k in keys:
                         tree = tree[k]
                 return tree
