@@ -14,7 +14,7 @@ MATCH_ALL = re.compile('.*')
 
 def create(repo_path):
     if os.path.exists(repo_path):
-        raise ValueError("Store repo path already exists: %s" % repo_path)
+        return Store(repo_path)
     os.mkdir(repo_path)
     repo = Repo.init_bare(repo_path)
     tree = Tree()
