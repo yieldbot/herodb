@@ -24,7 +24,7 @@ def get_stores():
     stores_path = app.config.gitstores_path
     for path in os.listdir(stores_path):
         if path.endswith('.git') and os.path.exists("%s/%s/HEAD" % (stores_path, path)):
-            stores.append(path.strip('.git'))
+            stores.append(path[:-4])
     return {'stores': stores}
 
 @app.post('/<store>/branch/<branch:path>')
