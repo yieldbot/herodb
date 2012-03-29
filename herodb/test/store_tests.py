@@ -1,18 +1,18 @@
-from ybot.gitstore.store import Store
+from ybot.gitstore.store import Store, create
 import os
 import shutil
 from nose import tools as nt
 import types
 import re
 
-TEST_REPO = "/tmp/test"
+TEST_REPO = "/tmp/test.git"
 
 store = None
 
 def setUp():
     _remove_files([TEST_REPO])
     global store
-    store = Store(TEST_REPO)
+    store = create(TEST_REPO)
 
 def tearDown():
     store = Store(TEST_REPO)
@@ -25,9 +25,10 @@ def _remove_files(dirs):
         if os.path.exists(d):
             shutil.rmtree(d)
 
+@nt.with_setup(setup=setUp, teardown=tearDown)
 def test_repo_init():
     nt.assert_true(os.path.exists(TEST_REPO))
-    nt.assert_true(os.path.exists("%s/.git" % TEST_REPO))
+    nt.assert_true(os.path.exists("%s/objects" % TEST_REPO))
 
 @nt.with_setup(setup=setUp, teardown=tearDown)
 def test_put():
@@ -127,6 +128,7 @@ def test_sparse_trees():
     t = store.trees(pattern=re.compile('a'), depth=3)
     nt.assert_true('a' in t)
 
+@nt.with_setup(setup=setUp, teardown=tearDown)
 def test_branch_merge():
     sha = store.put('foo', 'bar')
     nt.assert_equal(sha['sha'], store.branch_head('master'))
