@@ -1,5 +1,5 @@
 from bottle import Bottle, run, request, abort
-from store import Store, MATCH_ALL, ROOT_PATH
+from store import Store, create, MATCH_ALL, ROOT_PATH
 import re
 import sys
 import types
@@ -13,12 +13,17 @@ app = Bottle()
 def error404(error):
     return error.output
 
+@app.post('/stores/<store>')
+def create_store(store):
+    s = create(_get_repo_path(store))
+    return {'sha': s.branch_head('master')}
+
 @app.get('/stores')
 def get_stores():
     stores = []
     stores_path = app.config.gitstores_path
     for path in os.listdir(stores_path):
-        if os.path.exists("%s/%s/.git" % (stores_path, path)):
+        if os.path.exists("%s/%s.git" % (stores_path, path)):
             stores.append(path)
     return {'stores': stores}
 
@@ -135,10 +140,13 @@ def _query_param(param, default=None):
     return default
 
 def _get_store(id):
-    path = "%s/%s" % (app.config.gitstores_path, id)
+    path = _get_repo_path(id)
     if not path in stores:
         stores[path] = Store(path)
     return stores[path]
+
+def _get_repo_path(id):
+    return "%s/%s.git" % (app.config.gitstores_path, id)
 
 def make_app(stores_path='/tmp'):
     global app

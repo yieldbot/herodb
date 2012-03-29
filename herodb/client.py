@@ -12,6 +12,11 @@ class StoreClient(object):
         self.resource = Resource(endpoint, **kwargs)
         self.name = name
 
+    def create_store(self, store):
+        response = self.resource.post("/stores/%s" % store)
+        if response.status_int == 200:
+            return json.loads(response.body_string())
+
     def get_stores(self):
         response = self.resource.get("/stores")
         if response.status_int == 200:

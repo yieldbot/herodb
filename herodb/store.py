@@ -12,6 +12,16 @@ import re
 ROOT_PATH = ''
 MATCH_ALL = re.compile('.*')
 
+def create(repo_path):
+    if os.path.exists(repo_path):
+        raise ValueError("Store repo path already exists: %s" % repo_path)
+    os.mkdir(repo_path)
+    repo = Repo.init_bare(repo_path)
+    tree = Tree()
+    repo.object_store.add_object(tree)
+    repo.do_commit(tree=tree.id, message="Initial version")
+    return Store(repo_path)
+
 class Store(object):
     """
     A simple key/value store using git as the backing store.
@@ -21,10 +31,7 @@ class Store(object):
         if os.path.exists(repo_path):
             self.repo = Repo(repo_path)
         else:
-            self.repo = Repo.init(repo_path, mkdir=True)
-            tree = Tree()
-            self.repo.object_store.add_object(tree)
-            self.repo.do_commit(tree=tree.id, message="Initial version")
+            raise ValueError("Store repo path does not exist: %s" % repo_path)
         if not serializer:
             self.serializer = json
         else:
