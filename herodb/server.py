@@ -23,8 +23,8 @@ def get_stores():
     stores = []
     stores_path = app.config.gitstores_path
     for path in os.listdir(stores_path):
-        if os.path.exists("%s/%s.git" % (stores_path, path)):
-            stores.append(path)
+        if path.endswith('.git') and os.path.exists("%s/%s/HEAD" % (stores_path, path)):
+            stores.append(path.strip('.git'))
     return {'stores': stores}
 
 @app.post('/<store>/branch/<branch:path>')
@@ -142,7 +142,10 @@ def _query_param(param, default=None):
 def _get_store(id):
     path = _get_repo_path(id)
     if not path in stores:
-        stores[path] = Store(path)
+        try:
+            stores[path] = Store(path)
+        except ValueError as ve:
+            abort(abort(404, "Not found: %s" % path))
     return stores[path]
 
 def _get_repo_path(id):
