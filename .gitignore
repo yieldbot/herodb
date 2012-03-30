@@ -1,0 +1,7 @@
+*.pyc
+*~
+*.idx
+*.orig
+.idea/
+build/
+.dir-locals.el
