@@ -1,4 +1,4 @@
-from ybot.gitstore.store import Store, create
+from herodb.store import Store, create
 import os
 import shutil
 from nose import tools as nt
