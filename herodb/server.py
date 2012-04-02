@@ -61,7 +61,7 @@ def get(store, path=ROOT_PATH):
 @app.put('/<store>/entry/<path:path>')
 def put(store, path):
     content      = request.json
-    flatten_keys = _query_param('flatten_keys', True)
+    flatten_keys = _get_flatten_keys()
     branch       = _get_branch()
     author       = _query_param('author')
     committer    = _query_param('committer')
@@ -134,6 +134,12 @@ def _get_branch():
 def _get_commit_sha():
     return _query_param('commit_sha')
 
+def _get_flatten_keys():
+    flatten_keys = _query_param('flatten_keys')
+    if flatten_keys:
+        return bool(int(flatten_keys))
+    return True
+
 def _query_param(param, default=None):
     if param in request.query:
         return request.query[param]
@@ -144,7 +150,7 @@ def _get_store(id):
     if not path in stores:
         try:
             stores[path] = Store(path)
-        except ValueError as ve:
+        except ValueError:
             abort(abort(404, "Not found: %s" % path))
     return stores[path]
 
