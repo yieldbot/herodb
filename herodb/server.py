@@ -48,7 +48,7 @@ def merge(store, source):
 @app.get('/<store>/entry')
 @app.get('/<store>/entry/<path:path>')
 def get(store, path=ROOT_PATH):
-    shallow    = _query_param('shallow', False)
+    shallow    = _query_param('shallow', False) == 'True'  # force to actual boolean
     branch     = _get_branch()
     commit_sha = _get_commit_sha()
     value = _get_store(store).get(path, shallow=shallow, branch=branch, commit_sha=commit_sha)
