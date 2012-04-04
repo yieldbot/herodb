@@ -10,8 +10,8 @@ class StoreClient(object):
             endpoint = endpoint.rstrip('/')
         if 'pool' not in kwargs:
             kwargs['pool'] = ConnectionPool(factory=Connection)
-        self.json_default = kwargs['json_default'] if 'json_default' in kwargs else json_util.default
-        self.json_object_hook = kwargs['json_object_hook'] if 'json_object_hook' in kwargs else json_util.object_hook
+        self.json_default = kwargs.get('json_default', json_util.default)
+        self.json_object_hook = kwargs.get('json_object_hook', json_util.object_hook)
         self.resource = Resource(endpoint, **kwargs)
         self.name = name
 
@@ -51,7 +51,7 @@ class StoreClient(object):
         response = self.resource.get(path, params_dict=params)
         if response.status_int == 200:
             response_body = response.body_string()
-            return json.loads(response_body, object_hook=json_util.object_hook)
+            return json.loads(response_body, object_hook=self.json_object_hook)
 
     def put(self, store, key, value, flatten_keys=True, branch='master', author=None, committer=None):
         path = _entry_path(store, key)
