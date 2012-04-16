@@ -23,7 +23,7 @@ for store in os.listdir(stores_path):
             cmd = "git fetch %s/%s" % (stores_path, store)
             cwd = backup_store_path
         else:
-            cmd = "git clone %s/%s ." % (stores_path, store)
+            cmd = "git clone --bare %s/%s" % (stores_path, store)
             cwd = backup_stores_path
         # git clone/fetch to backup stores location
         subprocess.check_call(cmd, cwd=cwd, shell=True)
