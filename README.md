@@ -8,16 +8,17 @@ Herodb is a key, value store written in Python that uses Git as its organizing p
 
 To start a server running Herodb:
 
-    $ pip install git+git://github.com/yieldbot/herodb.git
-    $ python herodb/server.py dir
+    $ git clone git://github.com/yieldbot/herodb.git
+    $ cd herodb
+    $ python herodb/server.py new_dir
 
 If the install fails try running:
 
     $ apt-get install build-essentials
     $ apt-get install python-dev
 
-The install might fail while installing dulwich--
-a Python implementation of Git file formats and protocols which requries both packages.
+The install might fail while installing dulwich--a Python implementation
+of Git file formats and protocols which requries both packages.
 
 ## Client
 
@@ -27,23 +28,26 @@ To run the client code in a repl:
 
     $ python
     >>> from herodb import client
-    >>> s = client.StoreClient('http://localhost:8080', 'foo')
+    >>> store = client.StoreClient('http://localhost:8080', 'foo')
+ 
+To store a Python dictionary type:
 
-To store a Python dict:
+    >>> fruit = {'yellow': 'grapefruit',
+    ...          'red': 'apple',
+    ...          'green': 'grape',
+    ...          'purple': 'plum'}
+    >>> store.create_store('fruit_market')
+    >>> [store.put('fruit_market', key, value) for key, value in fruit.items()]
 
-    >>> d = dict(zip([str(i) for i in range(1, 11)], range(1, 11)))
-    >>> s.create_store('new_store')
-    >>> [s.put('new_store', k, v) for k, v in d.items()]
+To retrieve a Python dictionary type:
 
-To retrieve a Python dict:
+    >>> store.get('fruit_market')
 
-    >>> s.get('new_store')
+To retrieve a particular value:
 
-To retrieve a particular datum:
-
-    >>> s.get('new_store', k)
+    >>> store.get('fruit_market', key)
 
 ### Notes
 
-Keys are always Unicode.
-The int 0 is an invalid key choice.
+- Keys are always Unicode.
+- The int 0 is an invalid key choice.
