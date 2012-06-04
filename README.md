@@ -18,13 +18,13 @@ If the install fails try running:
     $ apt-get install python-dev
 
 The install might fail while installing dulwich--a Python implementation
-of Git file formats and protocols which requries both packages.
+of Git file formats and protocols--which depends on both packages.
 
 ## Client
 
 The client requires a running server. Please see Server above if one isn't running.
 
-To run the client code in a repl:
+To run the client code in a Python REPL:
 
     $ python
     >>> from herodb import client
@@ -32,10 +32,7 @@ To run the client code in a repl:
  
 To store a Python dictionary type:
 
-    >>> fruit = {'yellow': 'grapefruit',
-    ...          'red': 'apple',
-    ...          'green': 'grape',
-    ...          'purple': 'plum'}
+    >>> fruit = {'yellow': 'grapefruit', 'red': 'apple', 'green': 'grape', 'purple': 'plum'}
     >>> store.create_store('fruit_market')
     >>> [store.put('fruit_market', key, value) for key, value in fruit.items()]
 
@@ -45,7 +42,8 @@ To retrieve a Python dictionary type:
 
 To retrieve a particular value:
 
-    >>> store.get('fruit_market', key)
+    >>> store.get('fruit_market', 'yellow')
+    u'grapefruit'
 
 ### Notes
 
