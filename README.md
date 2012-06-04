@@ -10,6 +10,7 @@ To start a server running Herodb:
 
     $ git clone git://github.com/yieldbot/herodb.git
     $ cd herodb
+    $ pip install -e . # install herodb as an editable version
     $ python herodb/server.py new_dir
 
 If the install fails try running:
