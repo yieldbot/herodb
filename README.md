@@ -10,18 +10,18 @@ Install prerequisites (if needed):
 
     $ sudo apt-get install build-essential python-dev
 
-To start a server running Herodb:
+Install Herodb:
 
     $ git clone git://github.com/yieldbot/herodb.git
     $ virtualenv herodb
     $ cd herodb
     $ source bin/activate
-    $ pip install -e . # install herodb as an editable version
+    $ pip install -e . # install herodb as a live editable version
+
+Create a new Herodb store and start server using it:
+
     $ mkdir my_store
     $ python herodb/server.py my_store
-
-The install might fail while installing dulwich--a Python implementation
-of Git file formats and protocols--which depends on both packages.
 
 ## Client
 
@@ -51,4 +51,4 @@ To retrieve a particular value:
 ### Notes
 
 - Keys are always Unicode.
-- The int 0 is an invalid key choice.
+- The int 0 is not a valid key.
