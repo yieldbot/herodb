@@ -6,20 +6,22 @@ Herodb is a key, value store written in Python that uses Git as its organizing p
 
 ## Server
 
-To start a server running Herodb:
+Install prerequisites (if needed):
+
+    $ sudo apt-get install build-essential python-dev
+
+Install Herodb:
 
     $ git clone git://github.com/yieldbot/herodb.git
+    $ virtualenv herodb
     $ cd herodb
-    $ pip install -e . # install herodb as an editable version
-    $ python herodb/server.py new_dir
+    $ source bin/activate
+    $ pip install -e . # install herodb as a live editable version
 
-If the install fails try running:
+Create a new Herodb store and start server using it:
 
-    $ apt-get install build-essentials
-    $ apt-get install python-dev
-
-The install might fail while installing dulwich--a Python implementation
-of Git file formats and protocols--which depends on both packages.
+    $ mkdir my_store
+    $ python herodb/server.py my_store
 
 ## Client
 
@@ -49,4 +51,4 @@ To retrieve a particular value:
 ### Notes
 
 - Keys are always Unicode.
-- The int 0 is an invalid key choice.
+- The int 0 is not a valid key.
