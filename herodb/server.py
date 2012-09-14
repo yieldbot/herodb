@@ -1,5 +1,6 @@
 from bottle import Bottle, run, request, abort
 from store import Store, create, MATCH_ALL, ROOT_PATH
+from cache import Cache, LocalCache, RedisCache
 import re
 import sys
 import types
@@ -8,6 +9,7 @@ import os
 
 stores = {}
 app = Bottle()
+cache = None
 
 @app.error(404)
 def error404(error):
@@ -17,6 +19,15 @@ def error404(error):
 def create_store(store):
     s = create(_get_repo_path(store))
     return {'sha': s.branch_head('master')}
+
+@app.get('/cache_stats')
+def get_cache_stats():
+    return cache.get_stats()
+
+@app.post('/reset_cache_stats')
+def reset_cache_stats():
+    cache.reset_stats()
+    return cache.get_stats()
 
 @app.get('/stores')
 def get_stores():
@@ -51,12 +62,14 @@ def get(store, path=ROOT_PATH):
     shallow    = _query_param('shallow', False) == 'True'  # force to actual boolean
     branch     = _get_branch()
     commit_sha = _get_commit_sha()
-    value = _get_store(store).get(path, shallow=shallow, branch=branch, commit_sha=commit_sha)
-    if not value:
-        abort(404, "Not found: %s" % path)
-    if type(value) != types.DictType:
-        value = json.dumps(value)
-    return value
+    def _get(store, path, shallow, branch, commit_sha):
+        value = _get_store(store).get(path, shallow=shallow, branch=branch, commit_sha=commit_sha)
+        if not value:
+            abort(404, "Not found: %s" % path)
+        if type(value) != types.DictType:
+            value = json.dumps(value)
+        return value
+    return cache.get('get', commit_sha, _get, store, path, shallow, branch, commit_sha)
 
 @app.put('/<store>/entry/<path:path>')
 def put(store, path):
@@ -88,7 +101,9 @@ def keys(store, path=ROOT_PATH):
     filter_by  = _query_param('filter_by')
     branch     = _get_branch()
     commit_sha = _get_commit_sha()
-    return {'keys': _get_store(store).keys(path, pattern, depth, filter_by, branch, commit_sha)}
+    def _keys(store, path, pattern, depth, filter_by, branch, commit_sha):
+        return {'keys': _get_store(store).keys(path, _get_pattern_re(pattern), depth, filter_by, branch, commit_sha)}
+    return cache.get('keys', commit_sha, _keys, store, path, pattern, depth, filter_by, branch, commit_sha)
 
 @app.get('/<store>/entries')
 @app.get('/<store>/entries/<path:path>')
@@ -97,7 +112,9 @@ def entries(store, path=ROOT_PATH):
     depth      = _get_depth()
     branch     = _get_branch()
     commit_sha = _get_commit_sha()
-    return {'entries': tuple(_get_store(store).entries(path, pattern, depth, branch, commit_sha))}
+    def _entries(store, path, pattern, depth, branch, commit_sha):
+        return {'entries': tuple(_get_store(store).entries(path, _get_pattern_re(pattern), depth, branch, commit_sha))}
+    return cache.get('entries', commit_sha, _entries, store, path, pattern, depth, branch, commit_sha)
 
 @app.get('/<store>/trees')
 @app.get('/<store>/trees/<path:path>')
@@ -107,10 +124,14 @@ def trees(store, path=ROOT_PATH):
     object_depth = _get_object_depth()
     branch       = _get_branch()
     commit_sha   = _get_commit_sha()
-    return _get_store(store).trees(path, pattern, depth, object_depth, branch, commit_sha)
+    def _trees(store, path, pattern, depth, object_depth, branch, commit_sha):
+        return _get_store(store).trees(path, _get_pattern_re(pattern), depth, object_depth, branch, commit_sha)
+    return cache.get('trees', commit_sha, _trees, store, path, pattern, depth, object_depth, branch, commit_sha)
 
 def _get_match_pattern():
-    pattern = _query_param('pattern')
+    return _query_param('pattern')
+
+def _get_pattern_re(pattern):
     if not pattern:
         return MATCH_ALL
     else:
@@ -157,9 +178,20 @@ def _get_store(id):
 def _get_repo_path(id):
     return "%s/%s.git" % (app.config.gitstores_path, id)
 
-def make_app(stores_path='/tmp'):
+def make_app(stores_path='/tmp', cache_enabled=True, cache_type='memory', cache_size=10000, cache_host='localhost', cache_port=6379, cache_ttl=86400):
     global app
+    global cache
     app.config['gitstores_path'] = stores_path
+    cache_backend = None
+    if cache_type == 'memory':
+        cache_backend = LocalCache(cache_size)
+    elif cache_type == 'redis':
+        try:
+            import redis
+            cache_backend = RedisCache(redis.Redis(cache_host, cache_port), cache_ttl)
+        except ImportError:
+            pass
+    cache = Cache(backend=cache_backend, enabled=cache_enabled)
     return app
 
 if __name__ == '__main__':
