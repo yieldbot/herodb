@@ -1,5 +1,5 @@
 from bottle import Bottle, run, request, abort
-from store import Store, create, MATCH_ALL, ROOT_PATH
+from store import Store, create, ROOT_PATH
 from cache import Cache, LocalCache, RedisCache
 import re
 import sys
@@ -133,7 +133,7 @@ def _get_match_pattern():
 
 def _get_pattern_re(pattern):
     if not pattern:
-        return MATCH_ALL
+        return None
     else:
         return re.compile(pattern)
 

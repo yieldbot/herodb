@@ -10,7 +10,6 @@ import json
 import re
 
 ROOT_PATH = ''
-MATCH_ALL = re.compile('.*')
 
 def create(repo_path):
     if os.path.exists(repo_path):
@@ -243,15 +242,16 @@ class Store(object):
         if not isinstance(tree, Tree):
             raise ValueError("Path %s is not a tree!" % path)
         else:
-            if not pattern:
-                pattern = MATCH_ALL
             return self._entries(path, tree, pattern, depth)
 
     def _entries(self, path, tree, pattern, depth=None):
         for tree_entry in tree.iteritems():
             obj = self.repo[tree_entry.sha]
             key = self._tree_entry_key(path, tree_entry)
-            if pattern.match(key):
+            if pattern:
+                if pattern.match(key):
+                    yield (key, obj)
+            else:
                 yield (key, obj)
             if isinstance(obj, Tree):
                 if not depth:
