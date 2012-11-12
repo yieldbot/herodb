@@ -1,15 +1,20 @@
 from bottle import Bottle, run, request, abort
 from store import Store, create, ROOT_PATH
 from cache import Cache, LocalCache, RedisCache
+from util import setup_logging, get_stacks
 import re
 import sys
 import types
 import json
 import os
+import time
+import threading
+import logging
 
 stores = {}
 app = Bottle()
 cache = None
+log = logging.getLogger('herodb.server')
 
 @app.error(404)
 def error404(error):
@@ -28,6 +33,10 @@ def get_cache_stats():
 def reset_cache_stats():
     cache.reset_stats()
     return cache.get_stats()
+
+@app.get('/thread_dump')
+def thread_dump():
+    return get_stacks()
 
 @app.get('/stores')
 def get_stores():
@@ -178,10 +187,24 @@ def _get_store(id):
 def _get_repo_path(id):
     return "%s/%s.git" % (app.config.gitstores_path, id)
 
-def make_app(stores_path='/tmp', cache_enabled=True, cache_type='memory', cache_size=10000, cache_host='localhost', cache_port=6379, cache_ttl=86400):
+def run_gc():
+    while True:
+        try:
+            stores = get_stores()
+            for s in stores['stores']:
+                store = _get_store(s)
+                store.gc()
+            log.info("done running gc on all repos")
+            time.sleep(app.config['gc_interval'])
+        except:
+            log.exception("Failure during repo git gc")
+
+def make_app(stores_path='/tmp', cache_enabled=True, cache_type='memory', cache_size=10000, cache_host='localhost', cache_port=6379, cache_ttl=86400, gc_interval=86400):
     global app
     global cache
+    setup_logging()
     app.config['gitstores_path'] = stores_path
+    app.config['gc_interval'] = gc_interval
     cache_backend = None
     if cache_type == 'memory':
         cache_backend = LocalCache(cache_size)
@@ -192,7 +215,13 @@ def make_app(stores_path='/tmp', cache_enabled=True, cache_type='memory', cache_
         except ImportError:
             pass
     cache = Cache(backend=cache_backend, enabled=cache_enabled)
+    t = threading.Thread(target=run_gc)
+    t.setDaemon(True)
+    t.start()
     return app
 
 if __name__ == '__main__':
-    run(make_app(sys.argv[1]), host='localhost', port='8080', reloader=True)
+    _app = None
+    if os.environ.get('BOTTLE_CHILD'):
+        _app = make_app(sys.argv[1])
+    run(_app, host='localhost', port='8080', reloader=True)

@@ -3,13 +3,17 @@ from dulwich.objects import Tree, Blob
 from dulwich.object_store import tree_lookup_path
 from dulwich.index import pathjoin, pathsplit
 from dulwich import diff_tree
+from util import which
 import os
 import stat
 import collections
 import json
-import re
+import subprocess
+import threading
+import logging
 
 ROOT_PATH = ''
+log = logging.getLogger('herodb.store')
 
 def create(repo_path):
     if os.path.exists(repo_path):
@@ -35,43 +39,58 @@ class Store(object):
             self.serializer = json
         else:
             self.serializer = serializer
+        self.lock = threading.RLock()
+
+    def gc(self):
+        with self.lock:
+            if which('git'):
+                repo_dir = self.repo.path
+                try:
+                    log.info("starting gc on repo %s" % repo_dir)
+                    subprocess.check_call("git gc --auto", cwd=repo_dir, shell=True)
+                    log.info("finished gc on repo %s" % repo_dir)
+                    self.repo = Repo(self.repo.path)
+                except subprocess.CalledProcessError:
+                    log.exception("git gc failed for repo %s" % repo_dir)
 
     def create_branch(self, branch, parent=None):
-        if not parent:
-            parent = self.branch_head('master')
-        branch_ref = self._branch_ref_name(branch)
-        self.repo.refs.add_if_new(branch_ref, parent)
-        return {'sha': self.branch_head(branch)}
+        with self.lock:
+            if not parent:
+                parent = self.branch_head('master')
+            branch_ref = self._branch_ref_name(branch)
+            self.repo.refs.add_if_new(branch_ref, parent)
+            return {'sha': self.branch_head(branch)}
 
     def merge(self, source_branch, target_branch='master', author=None, committer=None):
-        if source_branch == target_branch:
-            raise ValueError("Cannot merge branch with itself %s" % source_branch)
-        target_tree = self._get_object(ROOT_PATH, target_branch)
-        branch_tree = self._get_object(ROOT_PATH, source_branch)
-        for tc in diff_tree.tree_changes(self.repo.object_store, target_tree.id, branch_tree.id):
-            if tc.type == diff_tree.CHANGE_ADD:
-                self._add_tree(target_tree, ((tc.new.path, tc.new.sha, tc.new.mode),))
-            if tc.type == diff_tree.CHANGE_COPY:
-                pass
-            if tc.type == diff_tree.CHANGE_DELETE:
-                target_tree = self._delete(tc.old.path, target_branch)
-            if tc.type == diff_tree.CHANGE_MODIFY:
-                self._add_tree(target_tree, ((tc.new.path, tc.new.sha, tc.new.mode),))
-            if tc.type == diff_tree.CHANGE_RENAME:
-                pass
-            if tc.type == diff_tree.CHANGE_UNCHANGED:
-                pass
-        msg = "Merge %s to %s" % (source_branch, target_branch)
-        merge_heads = [self.branch_head(source_branch)]
-        sha = self.repo.do_commit(
-            tree=target_tree.id,
-            message=msg,
-            ref=self._branch_ref_name(target_branch),
-            merge_heads=merge_heads,
-            author=author,
-            committer=committer
-        )
-        return {'sha': sha}
+        with self.lock:
+            if source_branch == target_branch:
+                raise ValueError("Cannot merge branch with itself %s" % source_branch)
+            target_tree = self._get_object(ROOT_PATH, target_branch)
+            branch_tree = self._get_object(ROOT_PATH, source_branch)
+            for tc in diff_tree.tree_changes(self.repo.object_store, target_tree.id, branch_tree.id):
+                if tc.type == diff_tree.CHANGE_ADD:
+                    self._add_tree(target_tree, ((tc.new.path, tc.new.sha, tc.new.mode),))
+                if tc.type == diff_tree.CHANGE_COPY:
+                    pass
+                if tc.type == diff_tree.CHANGE_DELETE:
+                    target_tree = self._delete(tc.old.path, target_branch)
+                if tc.type == diff_tree.CHANGE_MODIFY:
+                    self._add_tree(target_tree, ((tc.new.path, tc.new.sha, tc.new.mode),))
+                if tc.type == diff_tree.CHANGE_RENAME:
+                    pass
+                if tc.type == diff_tree.CHANGE_UNCHANGED:
+                    pass
+            msg = "Merge %s to %s" % (source_branch, target_branch)
+            merge_heads = [self.branch_head(source_branch)]
+            sha = self.repo.do_commit(
+                tree=target_tree.id,
+                message=msg,
+                ref=self._branch_ref_name(target_branch),
+                merge_heads=merge_heads,
+                author=author,
+                committer=committer
+            )
+            return {'sha': sha}
 
     def get(self, key, shallow=False, branch='master', commit_sha=None):
         """
@@ -84,21 +103,22 @@ class Store(object):
         :param branch: The branch name to search for the requested key
         :return: Either a python dict or string depending on whether the requested key points to a git Tree or Blob
         """
-        obj = self._get_object(key, branch, commit_sha)
-        if obj:
-            if isinstance(obj, Blob):
-                return self.serializer.loads(obj.data)
-            elif isinstance(obj, Tree):
-                keys = key.split('/')
-                depth = None
-                if shallow:
-                    depth = len(keys)
-                tree = self.trees(key, depth=depth, branch=branch)
-                if keys != [ROOT_PATH]:
-                    for k in keys:
-                        tree = tree[k]
-                return tree
-        return None
+        with self.lock:
+            obj = self._get_object(key, branch, commit_sha)
+            if obj:
+                if isinstance(obj, Blob):
+                    return self.serializer.loads(obj.data)
+                elif isinstance(obj, Tree):
+                    keys = key.split('/')
+                    depth = None
+                    if shallow:
+                        depth = len(keys)
+                    tree = self.trees(key, depth=depth, branch=branch)
+                    if keys != [ROOT_PATH]:
+                        for k in keys:
+                            tree = tree[k]
+                    return tree
+            return None
 
     def _get_object(self, key, branch='master', commit_sha=None):
         try:
@@ -118,30 +138,31 @@ class Store(object):
         :param key: The key to store the entry/entries in
         :param value: The value to store.
         """
-        e = {key: value}
-        if flatten_keys:
-            e = flatten(e)
-        root_tree = self._get_object(ROOT_PATH, branch)
-        merge_heads = []
-        if not root_tree:
-            root_tree = self._get_object(ROOT_PATH)
-            merge_heads = [self.branch_head('master')]
-        blobs=[]
-        msg = ''
-        for (key, value) in e.iteritems():
-            blob = Blob.from_string(self.serializer.dumps(value))
-            self.repo.object_store.add_object(blob)
-            blobs.append((key, blob.id, stat.S_IFREG))
-            msg += "Put %s\n" % key
-        root_id = self._add_tree(root_tree, blobs)
-        sha = self.repo.do_commit(
-            tree=root_id, message=msg,
-            ref=self._branch_ref_name(branch),
-            merge_heads=merge_heads,
-            author=author,
-            committer=committer
-        )
-        return {'sha': sha}
+        with self.lock:
+            e = {key: value}
+            if flatten_keys:
+                e = flatten(e)
+            root_tree = self._get_object(ROOT_PATH, branch)
+            merge_heads = []
+            if not root_tree:
+                root_tree = self._get_object(ROOT_PATH)
+                merge_heads = [self.branch_head('master')]
+            blobs=[]
+            msg = ''
+            for (key, value) in e.iteritems():
+                blob = Blob.from_string(self.serializer.dumps(value))
+                self.repo.object_store.add_object(blob)
+                blobs.append((key, blob.id, stat.S_IFREG))
+                msg += "Put %s\n" % key
+            root_id = self._add_tree(root_tree, blobs)
+            sha = self.repo.do_commit(
+                tree=root_id, message=msg,
+                ref=self._branch_ref_name(branch),
+                merge_heads=merge_heads,
+                author=author,
+                committer=committer
+            )
+            return {'sha': sha}
 
     def delete(self, key, branch='master', author=None, committer=None):
         """
@@ -151,22 +172,23 @@ class Store(object):
 
         :param key: The key to remove from the store.
         """
-        tree = self._get_object(key, branch)
-        merge_heads = []
-        delete_branch = branch
-        if not tree:
-            merge_heads = [self.branch_head('master')]
-            delete_branch = 'master'
-        root = self._delete(key, delete_branch)
-        sha = self.repo.do_commit(
-            tree=root.id,
-            message="Delete %s" % key,
-            ref=self._branch_ref_name(branch),
-            merge_heads=merge_heads,
-            author=author,
-            committer=committer
-        )
-        return {'sha': sha}
+        with self.lock:
+            tree = self._get_object(key, branch)
+            merge_heads = []
+            delete_branch = branch
+            if not tree:
+                merge_heads = [self.branch_head('master')]
+                delete_branch = 'master'
+            root = self._delete(key, delete_branch)
+            sha = self.repo.do_commit(
+                tree=root.id,
+                message="Delete %s" % key,
+                ref=self._branch_ref_name(branch),
+                merge_heads=merge_heads,
+                author=author,
+                committer=committer
+            )
+            return {'sha': sha}
 
     def _delete(self, key, branch='master'):
         trees={}
@@ -211,18 +233,20 @@ class Store(object):
         :param branch: The branch name to return key paths for.
         :return: A list of keys sorted lexically.
         """
-        if filter_by == 'blob':
-            filter_fn = lambda tree_entry: isinstance(tree_entry[1], Blob)
-        elif filter_by == 'tree':
-            filter_fn = lambda tree_entry: isinstance(tree_entry[1], Tree)
-        else:
-            filter_fn = None
-        return map(lambda x: x[0], filter(filter_fn, self.raw_entries(path, pattern, depth, branch, commit_sha)))
+        with self.lock:
+            if filter_by == 'blob':
+                filter_fn = lambda tree_entry: isinstance(tree_entry[1], Blob)
+            elif filter_by == 'tree':
+                filter_fn = lambda tree_entry: isinstance(tree_entry[1], Tree)
+            else:
+                filter_fn = None
+            return map(lambda x: x[0], filter(filter_fn, self.raw_entries(path, pattern, depth, branch, commit_sha)))
 
     def entries(self, path=ROOT_PATH, pattern=None, depth=None, branch='master', commit_sha=None):
-        for key, obj in self.raw_entries(path, pattern, depth, branch, commit_sha):
-            if isinstance(obj, Blob):
-                yield (key, self.serializer.loads(str(obj.data)))
+        with self.lock:
+            for key, obj in self.raw_entries(path, pattern, depth, branch, commit_sha):
+                if isinstance(obj, Blob):
+                    yield (key, self.serializer.loads(str(obj.data)))
 
     def raw_entries(self, path=ROOT_PATH, pattern=None, depth=None, branch='master', commit_sha=None):
         """
@@ -239,6 +263,8 @@ class Store(object):
         :return: A generator that produces entries of the form (tree_path, git_object)
         """
         tree = self._get_object(path, branch, commit_sha)
+        if not tree:
+            return ((None, None),)
         if not isinstance(tree, Tree):
             raise ValueError("Path %s is not a tree!" % path)
         else:
@@ -279,10 +305,11 @@ class Store(object):
         Defaults to HEAD.
         :return: A dict represents a section of the store.
         """
-        tree = {}
-        for path, value in self.entries(path, pattern, depth, branch, commit_sha):
-            expand_tree(path, value, tree, object_depth)
-        return tree
+        with self.lock:
+            tree = {}
+            for path, value in self.entries(path, pattern, depth, branch, commit_sha):
+                expand_tree(path, value, tree, object_depth)
+            return tree
 
     def _tree_entry_key(self, path, tree_entry):
         if path:
@@ -297,7 +324,8 @@ class Store(object):
             return "refs/heads/%s" % name
 
     def branch_head(self, name):
-        return self.repo.refs[self._branch_ref_name(name)]
+        with self.lock:
+            return self.repo.refs[self._branch_ref_name(name)]
 
     def _add_tree(self, root_tree, blobs):
         """Commit a new tree.
