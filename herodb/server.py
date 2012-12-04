@@ -1,4 +1,4 @@
-from bottle import Bottle, run, request, abort
+from bottle import Bottle, run, request, abort, BaseRequest
 from store import Store, create, ROOT_PATH
 from cache import Cache, LocalCache, RedisCache
 from util import setup_logging, get_stacks
@@ -83,6 +83,8 @@ def get(store, path=ROOT_PATH):
 @app.put('/<store>/entry/<path:path>')
 def put(store, path):
     content      = request.json
+    if not content:
+        abort(500, "JSON request is empty")
     flatten_keys = _get_flatten_keys()
     branch       = _get_branch()
     author       = _query_param('author')
@@ -202,6 +204,10 @@ def run_gc():
 def make_app(stores_path='/tmp', cache_enabled=True, cache_type='memory', cache_size=10000, cache_host='localhost', cache_port=6379, cache_ttl=86400, gc_interval=86400):
     global app
     global cache
+
+    # monkey patch bottle to increase BaseRequest.MEMFILE_MAX
+    BaseRequest.MEMFILE_MAX = 1024000
+
     setup_logging()
     app.config['gitstores_path'] = stores_path
     app.config['gc_interval'] = gc_interval
