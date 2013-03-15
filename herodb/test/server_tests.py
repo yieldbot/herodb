@@ -1,16 +1,16 @@
 import types
-import os
-from restkit.errors import ResourceNotFound
-import shutil
+from requests.exceptions import HTTPError
 from herodb.client import StoreClient
 from herodb.test.util import run_server, stop_server
 from nose import tools as nt
+import time
 
 client = None
 
 def setup_hero():
     global client
     run_server()
+    time.sleep(1)
     client = StoreClient('http://localhost:8081', 'test')
     client.create_store('test')
 
@@ -39,11 +39,11 @@ def test_delete():
     nt.assert_equal(sha['sha'], client.get_branch('test', 'master')['sha'])
     sha = client.delete('test', "foo")
     nt.assert_equal(sha['sha'], client.get_branch('test', 'master')['sha'])
-    nt.assert_raises(ResourceNotFound, client.get, 'test', "foo" )
+    nt.assert_raises(HTTPError, client.get, 'test', "foo" )
     nt.assert_equal(client.get('test', "a/b"), "a/b")
     sha = client.delete('test', "a/b")
     nt.assert_equal(sha['sha'], client.get_branch('test', 'master')['sha'])
-    nt.assert_raises(ResourceNotFound, client.get, 'test', 'a/b')
+    nt.assert_raises(HTTPError, client.get, 'test', 'a/b')
 
 @nt.with_setup(setup=setup_hero, teardown=teardown_hero)
 def test_put_many():
@@ -131,21 +131,21 @@ def test_branch_merge():
     nt.assert_equal(client.get('test', 'foo'), "foo")
     sha = client.delete('test', 'foo', branch='b1')
     nt.assert_equal(sha['sha'], client.get_branch('test', 'b1')['sha'])
-    nt.assert_raises(ResourceNotFound, client.get, 'test', 'foo', branch='b1')
+    nt.assert_raises(HTTPError, client.get, 'test', 'foo', branch='b1')
     sha = client.merge('test', 'b1')
     nt.assert_equal(sha['sha'], client.get_branch('test', 'master')['sha'])
-    nt.assert_raises(ResourceNotFound, client.get, 'test', 'foo')
+    nt.assert_raises(HTTPError, client.get, 'test', 'foo')
     sha = client.put('test', 'bar', 'bar')
     nt.assert_equal(sha['sha'], client.get_branch('test', 'master')['sha'])
     nt.assert_equal(client.get('test', 'bar'), "bar")
     sha = client.delete('test', 'bar', branch='b2')
     nt.assert_equal(sha['sha'], client.get_branch('test', 'b2')['sha'])
     nt.assert_equal(client.get('test', 'bar'), "bar")
-    nt.assert_raises(ResourceNotFound, client.get, 'test', 'bar', branch='b2')
+    nt.assert_raises(HTTPError, client.get, 'test', 'bar', branch='b2')
     sha = client.merge('test', 'b2')
     nt.assert_equal(sha['sha'], client.get_branch('test', 'master')['sha'])
     #nt.assert_equal(client.get('test', 'bar'), None)
-    nt.assert_raises(ResourceNotFound, client.get, 'test', 'bar')
+    nt.assert_raises(HTTPError, client.get, 'test', 'bar')
     sha = client.create_branch('test', 'b3')
     nt.assert_equal(sha['sha'], client.get_branch('test', 'b3')['sha'])
     nt.assert_equal(sha['sha'], client.get_branch('test', 'master')['sha'])

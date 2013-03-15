@@ -1,7 +1,4 @@
 from dulwich.lru_cache import LRUCache
-import threading
-
-_lock = threading.RLock()
 
 class LocalCache(LRUCache):
 
@@ -52,19 +49,18 @@ class Cache(object):
         }
 
     def get(self, operation, commit_sha, cb, *args):
-        with _lock:
-            self.requests += 1
-            if not self.enabled or not commit_sha:
-                return cb(*args)
-            key = (operation,) + tuple(args)
-            value = None
+        self.requests += 1
+        if not self.enabled or not commit_sha:
+            return cb(*args)
+        key = (operation,) + tuple(args)
+        value = None
+        if commit_sha:
+            value = self.backend.get(key)
+        if value is not None:
+            self.hits += 1
+        else:
+            self.misses += 1
+            value = cb(*args)
             if commit_sha:
-                value = self.backend.get(key)
-            if value is not None:
-                self.hits += 1
-            else:
-                self.misses += 1
-                value = cb(*args)
-                if commit_sha:
-                    self.backend.set(key, value)
-            return value
+                self.backend.set(key, value)
+        return value

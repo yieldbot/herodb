@@ -11,6 +11,7 @@ import json
 import subprocess
 import threading
 import logging
+import sys
 
 ROOT_PATH = ''
 log = logging.getLogger('herodb.store')
@@ -219,7 +220,7 @@ class Store(object):
     def _repo_tree(self, commit_sha):
         return self.repo[commit_sha].tree
 
-    def keys(self, path=ROOT_PATH, pattern=None, depth=None, filter_by=None, branch='master', commit_sha=None):
+    def keys(self, path=ROOT_PATH, pattern=None, depth=None, min_level=None, max_level=None, filter_by=None, branch='master', commit_sha=None):
         """
         Returns a list of keys from the store.  The path param can be used to scope the
         request to return keys from a subset of the tree.  The filter_by param can be used
@@ -240,15 +241,15 @@ class Store(object):
                 filter_fn = lambda tree_entry: isinstance(tree_entry[1], Tree)
             else:
                 filter_fn = None
-            return map(lambda x: x[0], filter(filter_fn, self.raw_entries(path, pattern, depth, branch, commit_sha)))
+            return map(lambda x: x[0], filter(filter_fn, self.raw_entries(path, pattern, depth, min_level, max_level, branch, commit_sha)))
 
-    def entries(self, path=ROOT_PATH, pattern=None, depth=None, branch='master', commit_sha=None):
+    def entries(self, path=ROOT_PATH, pattern=None, depth=None, min_level=None, max_level=None, branch='master', commit_sha=None):
         with self.lock:
-            for key, obj in self.raw_entries(path, pattern, depth, branch, commit_sha):
+            for key, obj in self.raw_entries(path, pattern, depth, min_level, max_level, branch, commit_sha):
                 if isinstance(obj, Blob):
                     yield (key, self.serializer.loads(str(obj.data)))
 
-    def raw_entries(self, path=ROOT_PATH, pattern=None, depth=None, branch='master', commit_sha=None):
+    def raw_entries(self, path=ROOT_PATH, pattern=None, depth=None, min_level=None, max_level=None, branch='master', commit_sha=None):
         """
         Returns a generator that traverses the tree and produces entries of the form
         (tree_path, git_object), where tree_path is a string representing a key into the
@@ -264,13 +265,17 @@ class Store(object):
         """
         tree = self._get_object(path, branch, commit_sha)
         if not tree:
-            return ((None, None),)
+            return (None, None),
         if not isinstance(tree, Tree):
             raise ValueError("Path %s is not a tree!" % path)
         else:
-            return self._entries(path, tree, pattern, depth)
+            return self._entries(path, tree, pattern, depth, min_level, max_level)
 
-    def _entries(self, path, tree, pattern, depth=None):
+    def _entries(self, path, tree, pattern, depth=None, min_level=None, max_level=None, current_level=0):
+        if max_level is None:
+            max_level = sys.maxint
+        if min_level is None:
+            min_level = 0
         for tree_entry in tree.iteritems():
             obj = self.repo[tree_entry.sha]
             key = self._tree_entry_key(path, tree_entry)
@@ -278,17 +283,23 @@ class Store(object):
                 if pattern.match(key):
                     yield (key, obj)
             else:
-                yield (key, obj)
+                if min_level and max_level:
+                    if min_level < current_level < max_level:
+                        yield (key, obj)
+                else:
+                    yield (key, obj)
             if isinstance(obj, Tree):
                 if not depth:
-                    for te in self._entries(key, obj, pattern, depth):
-                        yield te
+                    if current_level < max_level:
+                        for te in self._entries(key, obj, pattern, depth, min_level, max_level, current_level+1):
+                            yield te
                 else:
                     if depth > 1:
-                        for te in self._entries(key, obj, pattern, depth-1):
-                            yield te
+                        if current_level < max_level:
+                            for te in self._entries(key, obj, pattern, depth-1, min_level, max_level, current_level+1):
+                                yield te
 
-    def trees(self, path=ROOT_PATH, pattern=None, depth=None, object_depth=None, branch='master', commit_sha=None):
+    def trees(self, path=ROOT_PATH, pattern=None, depth=None, object_depth=None, min_level=None, max_level=None, branch='master', commit_sha=None):
         """
         Returns a python dict representation of the store.  The resulting dict can be
         scoped to a particular subtree in the store with the tree or path params.  The
@@ -307,7 +318,7 @@ class Store(object):
         """
         with self.lock:
             tree = {}
-            for path, value in self.entries(path, pattern, depth, branch, commit_sha):
+            for path, value in self.entries(path, pattern, depth, min_level, max_level, branch, commit_sha):
                 expand_tree(path, value, tree, object_depth)
             return tree
 

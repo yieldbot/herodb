@@ -121,10 +121,12 @@ def keys(store, path=ROOT_PATH):
 def entries(store, path=ROOT_PATH):
     pattern    = _get_match_pattern()
     depth      = _get_depth()
+    min_level  = _get_min_level()
+    max_level  = _get_max_level()
     branch     = _get_branch()
     commit_sha = _get_commit_sha()
     def _entries(store, path, pattern, depth, branch, commit_sha):
-        return {'entries': tuple(_get_store(store).entries(path, _get_pattern_re(pattern), depth, branch, commit_sha))}
+        return {'entries': tuple(_get_store(store).entries(path, _get_pattern_re(pattern), depth, min_level, max_level, branch, commit_sha))}
     return cache.get('entries', commit_sha, _entries, store, path, pattern, depth, branch, commit_sha)
 
 @app.get('/<store>/trees')
@@ -133,11 +135,13 @@ def trees(store, path=ROOT_PATH):
     pattern      = _get_match_pattern()
     depth        = _get_depth()
     object_depth = _get_object_depth()
+    min_level    = _get_min_level()
+    max_level    = _get_max_level()
     branch       = _get_branch()
     commit_sha   = _get_commit_sha()
-    def _trees(store, path, pattern, depth, object_depth, branch, commit_sha):
-        return _get_store(store).trees(path, _get_pattern_re(pattern), depth, object_depth, branch, commit_sha)
-    return cache.get('trees', commit_sha, _trees, store, path, pattern, depth, object_depth, branch, commit_sha)
+    def _trees(store, path, pattern, depth, object_depth, min_level, max_level, branch, commit_sha):
+        return _get_store(store).trees(path, _get_pattern_re(pattern), depth, object_depth, min_level, max_level, branch, commit_sha)
+    return cache.get('trees', commit_sha, _trees, store, path, pattern, depth, object_depth, min_level, max_level, branch, commit_sha)
 
 def _get_match_pattern():
     return _query_param('pattern')
@@ -147,6 +151,18 @@ def _get_pattern_re(pattern):
         return None
     else:
         return re.compile(pattern)
+
+def _get_min_level():
+    min_level = _query_param('min_level')
+    if min_level:
+        min_level = int(min_level)
+    return min_level
+
+def _get_max_level():
+    max_level = _query_param('max_level')
+    if max_level:
+        max_level = int(max_level)
+    return max_level
 
 def _get_depth():
     depth = _query_param('depth')
