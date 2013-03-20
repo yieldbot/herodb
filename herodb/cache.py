@@ -2,11 +2,17 @@ from dulwich.lru_cache import LRUCache
 
 class LocalCache(LRUCache):
 
+    def __contains__(self, key):
+        return self.get(key, None) is not None
+
     def size(self):
         return len(self._cache)
 
     def set(self, key, value):
         self.add(key, value)
+
+    def remove(self, key):
+        self.add(key, None)
 
 class RedisCache(object):
 
@@ -26,7 +32,7 @@ class RedisCache(object):
             pipe.expire(key, self.expire)
             pipe.execute()
 
-class Cache(object):
+class QueryCache(object):
 
     def __init__(self, backend=None, enabled=True):
         self.backend = backend

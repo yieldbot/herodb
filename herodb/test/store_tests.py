@@ -12,12 +12,10 @@ store = None
 def setUp():
     _remove_files([TEST_REPO])
     global store
-    store = create(TEST_REPO)
+    store = create('test', TEST_REPO)
 
 def tearDown():
-    store = Store(TEST_REPO)
-    for key in store.keys(filter_by='tree', depth=1):
-        store.delete(key)
+    global store
     store = None
 
 def _remove_files(dirs):
@@ -89,11 +87,11 @@ def test_serialization():
     nt.assert_equal(sha['sha'], store.branch_head('master'))
     sha = store.put('bool_attr', True)
     nt.assert_equal(sha['sha'], store.branch_head('master'))
-    sha = store.put('string_attr', 'foobar')
+    sha = store.put('string_attr', u'foobar')
     nt.assert_equal(sha['sha'], store.branch_head('master'))
     check_type_and_value(store.get('int_attr'), 1, types.IntType)
     check_type_and_value(store.get('bool_attr'), True, types.BooleanType)
-    check_type_and_value(store.get('string_attr'), 'foobar', types.UnicodeType)
+    check_type_and_value(store.get('string_attr'), u'foobar', types.UnicodeType)
     entries = { 'foo': 'foo', 'a/b': 'a/b', 'x/y/z': 'x/y/z' }
     sha = store.put('bar', entries, flatten_keys=False)
     nt.assert_equal(sha['sha'], store.branch_head('master'))
@@ -121,11 +119,11 @@ def test_sparse_trees():
     nt.assert_true('1' in t['a'])
     nt.assert_true('x' in t['a']['1'])
     nt.assert_true('b' not in t)
-    t = store.trees(pattern=re.compile('a'), depth=1)
+    t = store.trees(pattern=re.compile('a'), max_level=1)
     nt.assert_true('a' not in t)
-    t = store.trees(pattern=re.compile('a'), depth=2)
+    t = store.trees(pattern=re.compile('a'), max_level=2)
     nt.assert_true('a' not in t)
-    t = store.trees(pattern=re.compile('a'), depth=3)
+    t = store.trees(pattern=re.compile('a'), max_level=3)
     nt.assert_true('a' in t)
 
 @nt.with_setup(setup=setUp, teardown=tearDown)

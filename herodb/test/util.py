@@ -6,7 +6,7 @@ def _run_server(loc, port):
     from herodb import server
     if not os.path.exists(loc):
         os.makedirs(loc)
-    server.run(server.make_app(loc), quiet=True, port=port)
+    server.run(server.make_app(loc, gc_interval=0), quiet=True, port=port)
 
 server_process = None
 

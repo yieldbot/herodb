@@ -1,7 +1,7 @@
 import requests
 import json
 from herodb.store import ROOT_PATH
-from cache import Cache
+from cache import QueryCache
 
 class StoreClient(object):
 
@@ -13,7 +13,7 @@ class StoreClient(object):
         self.name = name
         cache_enabled = kwargs.get('cache_enabled', True)
         cache_backend = kwargs.get('cache_backend')
-        self.cache = Cache(backend=cache_backend, enabled=cache_enabled)
+        self.cache = QueryCache(backend=cache_backend, enabled=cache_enabled)
 
     def _url(self, path):
         return "%s/%s" % (self.endpoint, path)
@@ -107,38 +107,41 @@ class StoreClient(object):
         else:
             response.raise_for_status()
 
-    def keys(self, store, key=ROOT_PATH, pattern=None, depth=None, filter_by=None, branch='master', commit_sha=None):
-        def _keys(store, key=None, pattern=None, depth=None, filter_by=None, branch='master', commit_sha=None):
+    def keys(self, store, key=ROOT_PATH, pattern=None, min_level=None, max_level=None, depth_first=True, filter_by=None, branch='master', commit_sha=None):
+        def _keys(store, key, pattern, min_level, max_level, depth_first, filter_by, branch, commit_sha):
             path = _build_path(store, "keys", key)
-            params = _build_params(pattern=pattern, depth=depth, filter_by=filter_by, branch=branch, commit_sha=commit_sha)
+            depth_first = 1 if depth_first else 0
+            params = _build_params(pattern=pattern, min_level=min_level, max_level=max_level, depth_first=depth_first, filter_by=filter_by, branch=branch, commit_sha=commit_sha)
             response = self.session.get(self._url(path), params=params)
             if response.status_code == requests.codes.ok:
                 return response.json()
             else:
                 response.raise_for_status()
-        return self.cache.get('keys', commit_sha, _keys, store, key, pattern, depth, filter_by, branch, commit_sha)
+        return self.cache.get('keys', commit_sha, _keys, store, key, pattern, min_level, max_level, depth_first, filter_by, branch, commit_sha)
 
-    def entries(self, store, key=ROOT_PATH, pattern=None, depth=None, min_level=None, max_level=None, branch='master', commit_sha=None):
-        def _entries(store, key, pattern, depth, min_level, max_level, branch, commit_sha):
+    def entries(self, store, key=ROOT_PATH, pattern=None, min_level=None, max_level=None, depth_first=True, branch='master', commit_sha=None):
+        def _entries(store, key, pattern, min_level, max_level, depth_first, branch, commit_sha):
             path = _build_path(store, "entries", key)
-            params = _build_params(pattern=pattern, depth=depth, min_level=min_level, max_level=max_level, branch=branch, commit_sha=commit_sha)
+            depth_first = 1 if depth_first else 0
+            params = _build_params(pattern=pattern, min_level=min_level, max_level=max_level, depth_first=depth_first, branch=branch, commit_sha=commit_sha)
             response = self.session.get(self._url(path), params=params)
             if response.status_code == requests.codes.ok:
                 return response.json()
             else:
                 response.raise_for_status()
-        return self.cache.get('entries', commit_sha, _entries, store, key, pattern, depth, min_level, max_level, branch, commit_sha)
+        return self.cache.get('entries', commit_sha, _entries, store, key, pattern, min_level, max_level, depth_first, branch, commit_sha)
 
-    def trees(self, store, key=ROOT_PATH, pattern=None, depth=None, object_depth=None, branch='master', commit_sha=None):
-        def _trees(store, key, pattern, depth, object_depth, branch, commit_sha):
+    def trees(self, store, key=ROOT_PATH, pattern=None, min_level=None, max_level=None, depth_first=True, object_depth=None, branch='master', commit_sha=None):
+        def _trees(store, key, pattern, min_level, max_level, depth_first, object_depth, branch, commit_sha):
             path = _build_path(store, "trees", key)
-            params = _build_params(pattern=pattern, depth=depth, object_depth=object_depth, branch=branch, commit_sha=commit_sha)
+            depth_first = 1 if depth_first else 0
+            params = _build_params(pattern=pattern, min_level=min_level, max_level=max_level, depth_first=depth_first, object_depth=object_depth, branch=branch, commit_sha=commit_sha)
             response = self.session.get(self._url(path), params=params)
             if response.status_code == requests.codes.ok:
                 return response.json()
             else:
                 response.raise_for_status()
-        return self.cache.get('trees', commit_sha, _trees, store, key, pattern, depth, object_depth, branch, commit_sha)
+        return self.cache.get('trees', commit_sha, _trees, store, key, pattern, min_level, max_level, depth_first, object_depth, branch, commit_sha)
 
 def _entry_path(store, key):
     return _build_path(store, "entry", key)

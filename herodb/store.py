@@ -3,6 +3,7 @@ from dulwich.objects import Tree, Blob
 from dulwich.object_store import tree_lookup_path
 from dulwich.index import pathjoin, pathsplit
 from dulwich import diff_tree
+from herodb.cache import LocalCache
 from util import which
 import os
 import stat
@@ -12,26 +13,28 @@ import subprocess
 import threading
 import logging
 import sys
+import gevent
 
 ROOT_PATH = ''
 log = logging.getLogger('herodb.store')
 
-def create(repo_path):
+def create(id, repo_path):
     if os.path.exists(repo_path):
-        return Store(repo_path)
+        return Store(id, repo_path)
     os.mkdir(repo_path)
     repo = Repo.init_bare(repo_path)
     tree = Tree()
     repo.object_store.add_object(tree)
     repo.do_commit(tree=tree.id, message="Initial version")
-    return Store(repo_path)
+    return Store(id, repo_path)
 
 class Store(object):
     """
     A simple key/value store using git as the backing store.
     """
 
-    def __init__(self, repo_path, serializer=None):
+    def __init__(self, id, repo_path, serializer=None, head_cache=None):
+        self.id = id
         if os.path.exists(repo_path):
             self.repo = Repo(repo_path)
         else:
@@ -41,6 +44,9 @@ class Store(object):
         else:
             self.serializer = serializer
         self.lock = threading.RLock()
+        if head_cache is None:
+            head_cache = LocalCache(max_cache=100000)
+        self.head_cache = head_cache
 
     def gc(self):
         with self.lock:
@@ -64,6 +70,10 @@ class Store(object):
 
     def merge(self, source_branch, target_branch='master', author=None, committer=None):
         with self.lock:
+            if target_branch == 'master':
+                for k in self.head_cache.keys():
+                    if k.startswith(self.id):
+                        self.head_cache.remove(k)
             if source_branch == target_branch:
                 raise ValueError("Cannot merge branch with itself %s" % source_branch)
             target_tree = self._get_object(ROOT_PATH, target_branch)
@@ -104,24 +114,29 @@ class Store(object):
         :param branch: The branch name to search for the requested key
         :return: Either a python dict or string depending on whether the requested key points to a git Tree or Blob
         """
-        with self.lock:
-            obj = self._get_object(key, branch, commit_sha)
-            if obj:
-                if isinstance(obj, Blob):
-                    return self.serializer.loads(obj.data)
-                elif isinstance(obj, Tree):
-                    keys = key.split('/')
-                    depth = None
-                    if shallow:
-                        depth = len(keys)
-                    tree = self.trees(key, depth=depth, branch=branch)
-                    if keys != [ROOT_PATH]:
-                        for k in keys:
-                            tree = tree[k]
-                    return tree
-            return None
+        obj = self._get_object(key, branch, commit_sha)
+        if obj:
+            if isinstance(obj, Blob):
+                return self.serializer.loads(obj.data)
+            elif isinstance(obj, Tree):
+                keys = key.split('/')
+                min_level = len(filter(None, keys))
+                if shallow:
+                    max_level = min_level+2
+                else:
+                    max_level = sys.maxint
+                tree = self.trees(key, min_level=min_level, max_level=max_level)
+                if keys != [ROOT_PATH]:
+                    for k in keys:
+                        tree = tree[k]
+                return tree
+        return None
 
     def _get_object(self, key, branch='master', commit_sha=None):
+        if branch == 'master':
+            obj = self.head_cache.get(self._head_cache_key(key), None)
+            if obj:
+                return obj
         try:
             if not commit_sha:
                 commit_sha = self.branch_head(branch)
@@ -192,6 +207,11 @@ class Store(object):
             return {'sha': sha}
 
     def _delete(self, key, branch='master'):
+        if branch == 'master':
+            cache_key_prefix = self._head_cache_key(key)
+            for cache_key in self.head_cache.keys():
+                if cache_key.startswith(cache_key_prefix):
+                    self.head_cache.remove(cache_key)
         trees={}
         path = key
         if path:
@@ -208,6 +228,10 @@ class Store(object):
                 del trees[path][entry.path]
         if path:
             while path:
+                if branch == 'master':
+                    cache_path_key = self._head_cache_key(path)
+                    if cache_path_key in self.head_cache:
+                        self.head_cache.remove(cache_path_key)
                 (parent_path, name) = pathsplit(path)
                 trees[parent_path].add(name, stat.S_IFDIR, trees[path].id)
                 self.repo.object_store.add_object(trees[path])
@@ -220,7 +244,7 @@ class Store(object):
     def _repo_tree(self, commit_sha):
         return self.repo[commit_sha].tree
 
-    def keys(self, path=ROOT_PATH, pattern=None, depth=None, min_level=None, max_level=None, filter_by=None, branch='master', commit_sha=None):
+    def keys(self, path=ROOT_PATH, pattern=None, min_level=None, max_level=None, depth_first=True, filter_by=None, branch='master', commit_sha=None):
         """
         Returns a list of keys from the store.  The path param can be used to scope the
         request to return keys from a subset of the tree.  The filter_by param can be used
@@ -234,72 +258,52 @@ class Store(object):
         :param branch: The branch name to return key paths for.
         :return: A list of keys sorted lexically.
         """
-        with self.lock:
-            if filter_by == 'blob':
-                filter_fn = lambda tree_entry: isinstance(tree_entry[1], Blob)
-            elif filter_by == 'tree':
-                filter_fn = lambda tree_entry: isinstance(tree_entry[1], Tree)
-            else:
-                filter_fn = None
-            return map(lambda x: x[0], filter(filter_fn, self.raw_entries(path, pattern, depth, min_level, max_level, branch, commit_sha)))
-
-    def entries(self, path=ROOT_PATH, pattern=None, depth=None, min_level=None, max_level=None, branch='master', commit_sha=None):
-        with self.lock:
-            for key, obj in self.raw_entries(path, pattern, depth, min_level, max_level, branch, commit_sha):
-                if isinstance(obj, Blob):
-                    yield (key, self.serializer.loads(str(obj.data)))
-
-    def raw_entries(self, path=ROOT_PATH, pattern=None, depth=None, min_level=None, max_level=None, branch='master', commit_sha=None):
-        """
-        Returns a generator that traverses the tree and produces entries of the form
-        (tree_path, git_object), where tree_path is a string representing a key into the
-        store and git_object is either a git Blob or Tree object.
-
-        :param path: String key to begin producing result entries from.  Defaults to
-        '' which starts from the root of the store.
-        :param pattern: Regex pattern to filter matching tree paths.
-        :param depth: Specifies how deep to recurse when producing results.  Default is None which
-        does full tree traversal.
-        :param branch: Git branch name to return key paths for.  Defaults to HEAD.
-        :return: A generator that produces entries of the form (tree_path, git_object)
-        """
-        tree = self._get_object(path, branch, commit_sha)
-        if not tree:
-            return (None, None),
-        if not isinstance(tree, Tree):
-            raise ValueError("Path %s is not a tree!" % path)
+        if filter_by == 'blob':
+            filter_fn = lambda tree_entry: isinstance(tree_entry[1], Blob)
+        elif filter_by == 'tree':
+            filter_fn = lambda tree_entry: isinstance(tree_entry[1], Tree)
         else:
-            return self._entries(path, tree, pattern, depth, min_level, max_level)
+            filter_fn = None
+        return map(lambda x: x[0], filter(filter_fn, self.iteritems(path, pattern, min_level, max_level, depth_first, branch, commit_sha)))
 
-    def _entries(self, path, tree, pattern, depth=None, min_level=None, max_level=None, current_level=0):
-        if max_level is None:
-            max_level = sys.maxint
+    def entries(self, path=ROOT_PATH, pattern=None, min_level=None, max_level=None, depth_first=True, branch='master', commit_sha=None):
+        for key, obj in self.iteritems(path, pattern, min_level, max_level, depth_first, branch, commit_sha):
+            if isinstance(obj, Blob):
+                yield (key, self.serializer.loads(str(obj.data)))
+
+    def iteritems(self, path=ROOT_PATH, pattern=None, min_level=None, max_level=None, depth_first=True, branch='master', commit_sha=None):
+        def _node(level, path, node):
+            return level, path, node
+
+        root = self._get_object(path, branch=branch, commit_sha=commit_sha)
+        level = len(filter(None, path.split('/')))
         if min_level is None:
             min_level = 0
-        for tree_entry in tree.iteritems():
-            obj = self.repo[tree_entry.sha]
-            key = self._tree_entry_key(path, tree_entry)
-            if pattern:
-                if pattern.match(key):
-                    yield (key, obj)
-            else:
-                if min_level and max_level:
-                    if min_level < current_level < max_level:
-                        yield (key, obj)
+        if max_level is None:
+            max_level = sys.maxint
+        nodes_to_visit = collections.deque([_node(level, path, root)])
+        while len(nodes_to_visit) > 0:
+            # allow server to yield to other greenlets during long tree traversals
+            gevent.sleep(0)
+            (level, path, node) = nodes_to_visit.popleft()
+            if isinstance(node, Tree):
+                children = filter(lambda child: min_level < child[0] <= max_level, map(lambda child: _node(level+1, *self._tree_entry(path, child)), node.iteritems()))
+                if depth_first:
+                    nodes_to_visit.extendleft(children)
                 else:
-                    yield (key, obj)
-            if isinstance(obj, Tree):
-                if not depth:
-                    if current_level < max_level:
-                        for te in self._entries(key, obj, pattern, depth, min_level, max_level, current_level+1):
-                            yield te
+                    nodes_to_visit.extend(children)
+            if branch == 'master':
+                cache_path_key = self._head_cache_key(path)
+                if cache_path_key not in self.head_cache:
+                    self.head_cache.add(cache_path_key, node)
+            if min_level < level <= max_level:
+                if pattern is not None:
+                    if pattern.match(path):
+                        yield (path, node)
                 else:
-                    if depth > 1:
-                        if current_level < max_level:
-                            for te in self._entries(key, obj, pattern, depth-1, min_level, max_level, current_level+1):
-                                yield te
+                    yield (path, node)
 
-    def trees(self, path=ROOT_PATH, pattern=None, depth=None, object_depth=None, min_level=None, max_level=None, branch='master', commit_sha=None):
+    def trees(self, path=ROOT_PATH, pattern=None, min_level=None, max_level=None, depth_first=True, object_depth=None, branch='master', commit_sha=None):
         """
         Returns a python dict representation of the store.  The resulting dict can be
         scoped to a particular subtree in the store with the tree or path params.  The
@@ -310,17 +314,27 @@ class Store(object):
         :param path: Option string key to begin building the dict from.  Defaults to
         '' which starts from the root of the store.
         :param pattern: Regex pattern to filter matching tree paths.
-        :param depth: Specifies how deep to recurse when producing results.  Default is None which
         does full tree traversal.
         :param branch: Optional git branch name to return key paths from.
         Defaults to HEAD.
         :return: A dict represents a section of the store.
         """
-        with self.lock:
-            tree = {}
-            for path, value in self.entries(path, pattern, depth, min_level, max_level, branch, commit_sha):
-                expand_tree(path, value, tree, object_depth)
-            return tree
+        tree = {}
+        for key, value in self.entries(path, pattern, min_level, max_level, depth_first, branch, commit_sha):
+            expand_tree(key, value, tree, object_depth)
+        return tree
+
+    def _head_cache_key(self, key):
+        return "%s/%s" % (self.id, key)
+
+    def _tree_entry(self, path, tree_entry, branch='master'):
+        child_path = self._tree_entry_key(path, tree_entry)
+        obj = None
+        if branch == 'master':
+            obj = self.head_cache.get(self._head_cache_key(child_path))
+        if obj is None:
+            obj = self.repo[tree_entry.sha]
+        return child_path, obj
 
     def _tree_entry_key(self, path, tree_entry):
         if path:
@@ -338,7 +352,7 @@ class Store(object):
         with self.lock:
             return self.repo.refs[self._branch_ref_name(name)]
 
-    def _add_tree(self, root_tree, blobs):
+    def _add_tree(self, root_tree, blobs, branch='master', commit_sha=None):
         """Commit a new tree.
 
         :param root_tree: Root tree to add trees to
@@ -358,17 +372,25 @@ class Store(object):
             return newtree
 
         for path, sha, mode in blobs:
+            if branch == 'master':
+                cache_path_key = self._head_cache_key(path)
+                if cache_path_key in self.head_cache:
+                    self.head_cache.remove(cache_path_key)
             tree_path, basename = pathsplit(path)
             tree = add_tree(tree_path)
             tree[basename] = (mode, sha)
 
         def build_tree(path):
+            if branch == 'master':
+                cache_path_key = self._head_cache_key(path)
+                if cache_path_key in self.head_cache:
+                    self.head_cache.remove(cache_path_key)
             if path:
-                tree = self._get_object(path)
+                tree = self._get_object(path, branch=branch, commit_sha=commit_sha)
                 if not tree:
                     tree = Tree()
                 if not isinstance(tree, Tree):
-                    self.delete(path)
+                    self.delete(path, branch=branch)
                     tree = Tree()
             else:
                 tree = root_tree

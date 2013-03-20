@@ -1,6 +1,6 @@
 from bottle import Bottle, run, request, abort, BaseRequest
 from store import Store, create, ROOT_PATH
-from cache import Cache, LocalCache, RedisCache
+from cache import QueryCache, LocalCache, RedisCache
 from util import setup_logging, get_stacks
 import re
 import sys
@@ -14,6 +14,7 @@ import logging
 stores = {}
 app = Bottle()
 cache = None
+head_cache = None
 log = logging.getLogger('herodb.server')
 
 @app.error(404)
@@ -22,7 +23,7 @@ def error404(error):
 
 @app.post('/stores/<store>')
 def create_store(store):
-    s = create(_get_repo_path(store))
+    s = create(store, _get_repo_path(store))
     return {'sha': s.branch_head('master')}
 
 @app.get('/cache_stats')
@@ -107,41 +108,43 @@ def delete(store, path):
 @app.get('/<store>/keys')
 @app.get('/<store>/keys/<path:path>')
 def keys(store, path=ROOT_PATH):
-    pattern    = _get_match_pattern()
-    depth      = _get_depth()
-    filter_by  = _query_param('filter_by')
-    branch     = _get_branch()
-    commit_sha = _get_commit_sha()
-    def _keys(store, path, pattern, depth, filter_by, branch, commit_sha):
-        return {'keys': _get_store(store).keys(path, _get_pattern_re(pattern), depth, filter_by, branch, commit_sha)}
-    return cache.get('keys', commit_sha, _keys, store, path, pattern, depth, filter_by, branch, commit_sha)
+    pattern     = _get_match_pattern()
+    min_level   = _get_min_level()
+    max_level   = _get_max_level()
+    depth_first = _get_depth_first()
+    filter_by   = _query_param('filter_by')
+    branch      = _get_branch()
+    commit_sha  = _get_commit_sha()
+    def _keys(store, path, pattern, min_level, max_level, depth_first, filter_by, branch, commit_sha):
+        return {'keys': _get_store(store).keys(path, _get_pattern_re(pattern), min_level, max_level, depth_first, filter_by, branch, commit_sha)}
+    return cache.get('keys', commit_sha, _keys, store, path, pattern, min_level, max_level, depth_first, filter_by, branch, commit_sha)
 
 @app.get('/<store>/entries')
 @app.get('/<store>/entries/<path:path>')
 def entries(store, path=ROOT_PATH):
-    pattern    = _get_match_pattern()
-    depth      = _get_depth()
-    min_level  = _get_min_level()
-    max_level  = _get_max_level()
-    branch     = _get_branch()
-    commit_sha = _get_commit_sha()
-    def _entries(store, path, pattern, depth, branch, commit_sha):
-        return {'entries': tuple(_get_store(store).entries(path, _get_pattern_re(pattern), depth, min_level, max_level, branch, commit_sha))}
-    return cache.get('entries', commit_sha, _entries, store, path, pattern, depth, branch, commit_sha)
+    pattern     = _get_match_pattern()
+    min_level   = _get_min_level()
+    max_level   = _get_max_level()
+    depth_first = _get_depth_first()
+    branch      = _get_branch()
+    commit_sha  = _get_commit_sha()
+    def _entries(store, path, pattern, min_level, max_level, depth_first, branch, commit_sha):
+        return {'entries': tuple(_get_store(store).entries(path, _get_pattern_re(pattern), min_level, max_level, depth_first, branch, commit_sha))}
+    return cache.get('entries', commit_sha, _entries, store, path, pattern, min_level, max_level, depth_first, branch, commit_sha)
 
 @app.get('/<store>/trees')
 @app.get('/<store>/trees/<path:path>')
 def trees(store, path=ROOT_PATH):
     pattern      = _get_match_pattern()
-    depth        = _get_depth()
-    object_depth = _get_object_depth()
     min_level    = _get_min_level()
     max_level    = _get_max_level()
+    depth_first  = _get_depth_first()
+    object_depth = _get_object_depth()
     branch       = _get_branch()
     commit_sha   = _get_commit_sha()
-    def _trees(store, path, pattern, depth, object_depth, min_level, max_level, branch, commit_sha):
-        return _get_store(store).trees(path, _get_pattern_re(pattern), depth, object_depth, min_level, max_level, branch, commit_sha)
-    return cache.get('trees', commit_sha, _trees, store, path, pattern, depth, object_depth, min_level, max_level, branch, commit_sha)
+    def _trees(store, path, pattern, min_level, max_level, depth_first, object_depth, branch, commit_sha):
+        return _get_store(store).trees(path, _get_pattern_re(pattern), min_level, max_level, depth_first, object_depth, branch, commit_sha)
+    return cache.get('trees', commit_sha, _trees, store, path, pattern, min_level, max_level, depth_first, object_depth, branch, commit_sha)
 
 def _get_match_pattern():
     return _query_param('pattern')
@@ -164,11 +167,11 @@ def _get_max_level():
         max_level = int(max_level)
     return max_level
 
-def _get_depth():
-    depth = _query_param('depth')
-    if depth:
-        depth = int(depth)
-    return depth
+def _get_depth_first():
+    depth_first = _query_param('depth_first')
+    if depth_first:
+        return bool(int(depth_first))
+    return True
 
 def _get_object_depth():
     object_depth = _query_param('object_depth')
@@ -194,10 +197,11 @@ def _query_param(param, default=None):
     return default
 
 def _get_store(id):
+    global head_cache
     path = _get_repo_path(id)
     if not path in stores:
         try:
-            stores[path] = Store(path)
+            stores[path] = Store(id, path, head_cache=head_cache)
         except ValueError:
             abort(abort(404, "Not found: %s" % path))
     return stores[path]
@@ -217,9 +221,10 @@ def run_gc():
         except:
             log.exception("Failure during repo git gc")
 
-def make_app(stores_path='/tmp', cache_enabled=True, cache_type='memory', cache_size=10000, cache_host='localhost', cache_port=6379, cache_ttl=86400, gc_interval=86400):
+def make_app(stores_path='/tmp', cache_enabled=True, cache_type='memory', cache_size=10000, cache_host='localhost', cache_port=6379, cache_ttl=86400, gc_interval=86400, head_cache_size=500000):
     global app
     global cache
+    global head_cache
 
     # monkey patch bottle to increase BaseRequest.MEMFILE_MAX
     BaseRequest.MEMFILE_MAX = 1024000
@@ -236,10 +241,12 @@ def make_app(stores_path='/tmp', cache_enabled=True, cache_type='memory', cache_
             cache_backend = RedisCache(redis.Redis(cache_host, cache_port), cache_ttl)
         except ImportError:
             pass
-    cache = Cache(backend=cache_backend, enabled=cache_enabled)
-    t = threading.Thread(target=run_gc)
-    t.setDaemon(True)
-    t.start()
+    cache = QueryCache(backend=cache_backend, enabled=cache_enabled)
+    head_cache = LocalCache(max_cache=head_cache_size)
+    if gc_interval > 0:
+        t = threading.Thread(target=run_gc)
+        t.setDaemon(True)
+        t.start()
     return app
 
 if __name__ == '__main__':
