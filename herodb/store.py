@@ -13,7 +13,6 @@ import subprocess
 import threading
 import logging
 import sys
-import gevent
 
 ROOT_PATH = ''
 log = logging.getLogger('herodb.store')
@@ -272,6 +271,12 @@ class Store(object):
                 yield (key, self.serializer.loads(str(obj.data)))
 
     def iteritems(self, path=ROOT_PATH, pattern=None, min_level=None, max_level=None, depth_first=True, branch='master', commit_sha=None):
+        has_gevent = False
+        try:
+            import gevent
+            has_gevent = True
+        except:
+            pass
         def _node(level, path, node):
             return level, path, node
 
@@ -284,7 +289,8 @@ class Store(object):
         nodes_to_visit = collections.deque([_node(level, path, root)])
         while len(nodes_to_visit) > 0:
             # allow server to yield to other greenlets during long tree traversals
-            gevent.sleep(0)
+            if has_gevent:
+                gevent.sleep(0)
             (level, path, node) = nodes_to_visit.popleft()
             if isinstance(node, Tree):
                 children = filter(lambda child: min_level < child[0] <= max_level, map(lambda child: _node(level+1, *self._tree_entry(path, child)), node.iteritems()))
