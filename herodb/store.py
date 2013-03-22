@@ -131,8 +131,8 @@ class Store(object):
                 return tree
         return None
 
-    def _get_object(self, key, branch='master', commit_sha=None):
-        if branch == 'master':
+    def _get_object(self, key, branch='master', commit_sha=None, bypass_head_cache=True):
+        if branch == 'master' and not bypass_head_cache:
             obj = self.head_cache.get(self._head_cache_key(key), None)
             if obj:
                 return obj
@@ -271,16 +271,18 @@ class Store(object):
                 yield (key, self.serializer.loads(str(obj.data)))
 
     def iteritems(self, path=ROOT_PATH, pattern=None, min_level=None, max_level=None, depth_first=True, branch='master', commit_sha=None):
-        has_gevent = False
         try:
             import gevent
-            has_gevent = True
         except:
-            pass
+            gevent = None
         def _node(level, path, node):
             return level, path, node
-
         root = self._get_object(path, branch=branch, commit_sha=commit_sha)
+        bypass_head_cache=False
+        if branch == 'master':
+            cached_root = self.head_cache.get(self._head_cache_key(path))
+            if cached_root is not None and cached_root != root:
+                bypass_head_cache = True
         level = len(filter(None, path.split('/')))
         if min_level is None:
             min_level = 0
@@ -289,18 +291,23 @@ class Store(object):
         nodes_to_visit = collections.deque([_node(level, path, root)])
         while len(nodes_to_visit) > 0:
             # allow server to yield to other greenlets during long tree traversals
-            if has_gevent:
+            if gevent:
                 gevent.sleep(0)
             (level, path, node) = nodes_to_visit.popleft()
             if isinstance(node, Tree):
-                children = filter(lambda child: min_level < child[0] <= max_level, map(lambda child: _node(level+1, *self._tree_entry(path, child)), node.iteritems()))
+                children = filter(lambda child: min_level < child[0] <= max_level, map(lambda child: _node(level+1, *self._tree_entry(path, child, bypass_head_cache)), node.iteritems()))
                 if depth_first:
                     nodes_to_visit.extendleft(children)
                 else:
                     nodes_to_visit.extend(children)
             if branch == 'master':
                 cache_path_key = self._head_cache_key(path)
-                if cache_path_key not in self.head_cache:
+                if bypass_head_cache:
+                    # if we're bypassing the head cache on iteration, then always update
+                    # the head cache here with the latest repo state
+                    self.head_cache.add(cache_path_key, node)
+                elif cache_path_key not in self.head_cache:
+                    # otherwise only update the head cache it the key isn't already present
                     self.head_cache.add(cache_path_key, node)
             if min_level < level <= max_level:
                 if pattern is not None:
@@ -333,10 +340,10 @@ class Store(object):
     def _head_cache_key(self, key):
         return "%s/%s" % (self.id, key)
 
-    def _tree_entry(self, path, tree_entry, branch='master'):
+    def _tree_entry(self, path, tree_entry, branch='master', bypass_head_cache=False):
         child_path = self._tree_entry_key(path, tree_entry)
         obj = None
-        if branch == 'master':
+        if branch == 'master' and not bypass_head_cache:
             obj = self.head_cache.get(self._head_cache_key(child_path))
         if obj is None:
             obj = self.repo[tree_entry.sha]
