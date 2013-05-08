@@ -81,8 +81,9 @@ def get(store, path=ROOT_PATH):
         return value
     return cache.get('get', commit_sha, _get, store, path, shallow, branch, commit_sha)
 
+@app.put('/<store>/entry')
 @app.put('/<store>/entry/<path:path>')
-def put(store, path):
+def put(store, path=ROOT_PATH):
     content      = request.json
     if not content:
         abort(500, "JSON request is empty")
@@ -93,8 +94,9 @@ def put(store, path):
     s = _get_store(store)
     return s.put(path, content, flatten_keys, branch=branch, author=author, committer=committer)
 
+@app.delete('/<store>/entry')
 @app.delete('/<store>/entry/<path:path>')
-def delete(store, path):
+def delete(store, path=ROOT_PATH):
     branch    = _get_branch()
     author    = _query_param('author')
     committer = _query_param('committer')
