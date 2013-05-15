@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 setup(
     name = "herodb",
-    version = "0.2.4",
+    version = "0.2.5",
     packages = find_packages(exclude="test"),
 	install_requires = ['dulwich>=0.8.3', 'bottle>=0.10.9', 'requests>=1.1.0'],
 	setup_requires=['nose>=1.0'],
@@ -15,4 +15,7 @@ setup(
 	license = "PSF",
 	keywords = "git key value store database",
 	url = "https://github.com/yieldbot/herodb",
+    entry_points={
+        'console_scripts': ['herodb_mirror = herodb.mirror:mirror']
+    },
 )
