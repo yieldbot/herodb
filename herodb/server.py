@@ -219,9 +219,10 @@ def run_gc():
                 store = _get_store(s)
                 store.gc()
             log.info("done running gc on all repos")
-            time.sleep(app.config['gc_interval'])
         except:
             log.exception("Failure during repo git gc")
+        finally:
+            time.sleep(app.config['gc_interval'])
 
 def make_app(stores_path='/tmp', cache_enabled=True, cache_type='memory', cache_size=10000, cache_host='localhost', cache_port=6379, cache_ttl=86400, gc_interval=86400, head_cache_size=500000):
     global app
