@@ -54,7 +54,7 @@ def mirror_stores(remote_path, local_path, stores):
                     remote_repo = "%s:%s/%s/%s" % (remote_host, remote_path, store, repo)
                 else:
                     remote_repo = "%s/%s/%s" % (remote_path, store, repo)
-                cmd = "git clone --bare %s" % remote_repo
+                cmd = "git clone --mirror %s" % remote_repo
                 cwd = "%s/%s" % (local_path, store)
             else:
                 cmd = "git fetch origin"
