@@ -134,6 +134,11 @@ def entries(store, path=ROOT_PATH):
         return {'entries': tuple(_get_store(store).entries(path, _get_pattern_re(pattern), min_level, max_level, depth_first, branch, commit_sha))}
     return cache.get('entries', commit_sha, _entries, store, path, pattern, min_level, max_level, depth_first, branch, commit_sha)
 
+@app.get('/<store>/diff/<sha:path>')
+def diff(store, sha=None):
+    return {'diff':  _get_store(store).diff(sha) }
+
+
 @app.get('/<store>/trees')
 @app.get('/<store>/trees/<path:path>')
 def trees(store, path=ROOT_PATH):

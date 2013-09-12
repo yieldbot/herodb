@@ -144,6 +144,20 @@ class Store(object):
         except KeyError:
             return None
 
+    def diff( self, old_sha):
+        orig = self._get_object(ROOT_PATH, commit_sha=old_sha)
+        new = self._get_object(ROOT_PATH)
+        keys = { diff_tree.CHANGE_DELETE: 'delete',
+                 diff_tree.CHANGE_ADD: 'add',
+                 diff_tree.CHANGE_MODIFY: 'modify'}
+
+        out = { k: [] for k in keys.values() }
+        for change_tree in diff_tree.tree_changes(self.repo.object_store, orig.id, new.id, want_unchanged=False):
+            out[change_tree.type].append( filter(None, self.entries(change_tree.new.path)) )
+
+        return out
+
+
     def put(self, key, value, flatten_keys=True, branch='master', author=None, committer=None):
         """
         Add/Update many key value pairs in the store.  The entries param should be a python
@@ -295,7 +309,9 @@ class Store(object):
                 gevent.sleep(0)
             (level, path, node) = nodes_to_visit.popleft()
             if isinstance(node, Tree):
-                children = filter(lambda child: min_level < child[0] <= max_level, map(lambda child: _node(level+1, *self._tree_entry(path, child, bypass_head_cache)), node.iteritems()))
+                children = filter(lambda child: min_level < child[0] <= max_level, 
+                                  map(lambda child: _node(level+1, *self._tree_entry(path, child, bypass_head_cache)), 
+                                      node.iteritems()))
                 if depth_first:
                     nodes_to_visit.extendleft(children)
                 else:
