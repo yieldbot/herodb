@@ -145,6 +145,12 @@ class Store(object):
             return None
 
     def diff( self, old_sha):
+        """
+            Traverses the diff tree changes and returns a list of changes by change type.
+            :param old_sha: parent commit's sha-1
+            :return: map of objects that changed where the key is the change type and the value is a list of
+            lists of tuples
+        """
         orig = self._get_object(ROOT_PATH, commit_sha=old_sha)
         new = self._get_object(ROOT_PATH)
         keys = { diff_tree.CHANGE_DELETE: 'delete',
@@ -153,7 +159,12 @@ class Store(object):
 
         out = { k: [] for k in keys.values() }
         for change_tree in diff_tree.tree_changes(self.repo.object_store, orig.id, new.id, want_unchanged=False):
-            out[change_tree.type].append( filter(None, self.entries(change_tree.new.path)) )
+            if change_tree.type.lower() == "delete" and change_tree.old.path:
+                # if the change was a delete, we have no tree or blob to yield so return key with no value
+                # return in the same type of structure for consistency
+                out[change_tree.type].append([(change_tree.old.path, None)])
+            else:
+                out[change_tree.type].append(filter(None, self.entries(change_tree.new.path)))
 
         return out
 
