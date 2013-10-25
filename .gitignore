@@ -5,3 +5,9 @@
 .idea/
 build/
 .dir-locals.el
+.Python
+herodb.egg-info
+bin
+include
+lib
+nose-*

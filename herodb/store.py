@@ -113,6 +113,8 @@ class Store(object):
         :param branch: The branch name to search for the requested key
         :return: Either a python dict or string depending on whether the requested key points to a git Tree or Blob
         """
+        if not commit_sha:
+            commit_sha = self.branch_head(branch)
         obj = self._get_object(key, branch, commit_sha)
         if obj:
             if isinstance(obj, Blob):
@@ -124,10 +126,11 @@ class Store(object):
                     max_level = min_level+2
                 else:
                     max_level = sys.maxint
-                tree = self.trees(key, min_level=min_level, max_level=max_level)
+                tree = self.trees(key, min_level=min_level, max_level=max_level, branch=branch, commit_sha=commit_sha)
                 if keys != [ROOT_PATH]:
                     for k in keys:
                         tree = tree[k]
+                tree['commit_sha'] = commit_sha
                 return tree
         return None
 
