@@ -3,6 +3,7 @@ from dulwich.objects import Tree, Blob
 from dulwich.object_store import tree_lookup_path
 from dulwich.index import pathjoin, pathsplit
 from dulwich import diff_tree
+from dulwich.errors import NotTreeError
 from herodb.cache import LocalCache
 from util import which
 import os
@@ -145,6 +146,8 @@ class Store(object):
             (mode, sha) = tree_lookup_path(self.repo.get_object, self._repo_tree(commit_sha), key)
             return self.repo[sha]
         except KeyError:
+            return None
+        except NotTreeError:
             return None
 
     def diff( self, old_sha):
