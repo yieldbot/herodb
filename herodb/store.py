@@ -150,20 +150,21 @@ class Store(object):
         except NotTreeError:
             return None
 
-    def diff(self, parent_commit_tree_sha, current_commit_tree_sha):
+    def diff( self, old_sha):
         """
             Traverses the diff tree changes and returns a list of changes by change type.
-            :param parent_commit_tree_sha: tree sha of current commit's parent
-            :param current_commit_tree_sha: tree sha of current commit
+            :param old_sha: parent commit's sha-1
             :return: map of objects that changed where the key is the change type and the value is a list of
             lists of tuples
         """
+        orig = self._get_object(ROOT_PATH, commit_sha=old_sha)
+        new = self._get_object(ROOT_PATH)
         keys = { diff_tree.CHANGE_DELETE: 'delete',
                  diff_tree.CHANGE_ADD: 'add',
                  diff_tree.CHANGE_MODIFY: 'modify'}
 
-        out = {k: [] for k in keys.values()}
-        for change_tree in diff_tree.tree_changes(self.repo.object_store, parent_commit_tree_sha, current_commit_tree_sha, want_unchanged=False):
+        out = { k: [] for k in keys.values() }
+        for change_tree in diff_tree.tree_changes(self.repo.object_store, orig.id, new.id, want_unchanged=False):
             if change_tree.type.lower() == "delete" and change_tree.old.path:
                 # if the change was a delete, we have no tree or blob to yield so return key with no value
                 # return in the same type of structure for consistency
