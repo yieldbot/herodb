@@ -5,15 +5,21 @@ from cache import QueryCache
 
 class StoreClient(object):
 
-    def __init__(self, endpoint, name, **kwargs):
+    def __init__(self, endpoint, name, use_brainspawn=False **kwargs):
         self.session = requests.Session()
         self.endpoint = endpoint
         if self.endpoint.endswith('/'):
             self.endpoint = self.endpoint.rstrip('/')
         self.name = name
+        self.use_brainspawn = use_brainspawn
         cache_enabled = kwargs.get('cache_enabled', True)
         cache_backend = kwargs.get('cache_backend')
         self.cache = QueryCache(backend=cache_backend, enabled=cache_enabled)
+
+    def _get_id_field_by_store_name(self):
+
+        if self.name == 'publisher': return "psn"
+        if self.name == 'advertiser': return "asn"
 
     def _url(self, path):
         return "%s/%s" % (self.endpoint, path)
@@ -43,9 +49,34 @@ class StoreClient(object):
             response.raise_for_status()
 
     def get_stores(self):
-        response = self.session.get(self._url('stores'))
+
+        if self.use_brainspawn:
+            return self._get_stores_brainspawn()
+        else:
+            return self._get_stores_hero()
+
+    def _get_stores_hero(self):
+        response = self.session.get(self._url("stores"))
         if response.status_code == requests.codes.ok:
             return response.json()
+        else:
+            response.raise_for_status()
+
+    def _get_stores_brainspawn(self):
+
+        # derive the path from the store name, in this case it contain an 's' at the end
+        # for example if the name == 'publisher' the path for brainspawn would be 'publishers'
+        path = "%ss" % self.name
+        response = self.session.get(self._url(path))
+
+        if response.status_code == requests.codes.ok:
+            response_json = response.json()
+
+            # iterate through list of config objects, build dict of ids (i.e. psns, asns etc)
+            id = self._get_id_field_name_by_store_name()
+            stores = {"stores": [config_objs[id] for config_objs in response_json]}
+
+            return stores
         else:
             response.raise_for_status()
 
@@ -58,11 +89,30 @@ class StoreClient(object):
         else:
             response.raise_for_status()
 
+
     def get_branch(self, store, branch):
+        if self.use_brainspawn:
+            return self._get_branch_brainspawn(store, branch)
+        else:
+            return self._get_branch_hero(store, branch)
+
+    def _get_branch_hero(self, store, branch):
         path = _build_path(store, "branch", branch)
         response = self.session.get(self._url(path))
         if response.status_code == requests.codes.ok:
             return response.json()
+        else:
+            response.raise_for_status()
+
+    def _get_branch_brainspawn(self, store, branch):
+        path = "%s/%s?branch=%s" % (self.name, store, branch)
+        response = self.session.get(self._url(path))
+
+        if response.status_code == requests.codes.ok:
+            response_json = response.json()
+            results = {'sha': response_json['commit_sha'], 'branch': branch}
+
+            return results
         else:
             response.raise_for_status()
 
@@ -77,6 +127,8 @@ class StoreClient(object):
 
     def get(self, store, key=ROOT_PATH, shallow=False, branch='master', commit_sha=None):
         def _get(store, key=None, shallow=False, branch='master', commit_sha=None):
+
+            #TODO create wrapper method that returns path, params based on the brainstorm flag being "on"
             path = _entry_path(store, key)
             params = _build_params(shallow=shallow, branch=branch, commit_sha=commit_sha)
             response = self.session.get(self._url(path), params=params)
