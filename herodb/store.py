@@ -185,7 +185,7 @@ class Store(object):
             blobs=[]
             msg = ''
             existing_obj = None
-            if overwrite and type(value) == types.DictType:
+            if type(value) == types.DictType:
                 try:
                     existing_obj = self.get(key, shallow=True, branch=branch)
                 except:
@@ -198,9 +198,12 @@ class Store(object):
                 blob = Blob.from_string(self.serializer.dumps(value))
                 self.repo.object_store.add_object(blob)
                 blobs.append((k, blob.id, stat.S_IFREG))
-                msg += "Put %s\n" % k
                 if existing_obj and k in existing_obj:
+                    if existing_obj[k] != value:
+                        msg += "Put %s\n" % k
                     del existing_obj[k]
+                else:
+                    msg += "Put %s\n" % k
             if overwrite and existing_obj:
                 for k in existing_obj:
                     self.delete(k, branch=branch)
