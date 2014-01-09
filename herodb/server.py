@@ -88,11 +88,12 @@ def put(store, path=ROOT_PATH):
     if not content:
         abort(500, "JSON request is empty")
     flatten_keys = _get_flatten_keys()
+    overwrite    = _get_overwrite()
     branch       = _get_branch()
     author       = _query_param('author')
     committer    = _query_param('committer')
     s = _get_store(store)
-    return s.put(path, content, flatten_keys, branch=branch, author=author, committer=committer)
+    return s.put(path, content, flatten_keys, branch=branch, author=author, committer=committer, overwrite=overwrite)
 
 @app.delete('/<store>/entry')
 @app.delete('/<store>/entry/<path:path>')
@@ -198,17 +199,22 @@ def _get_flatten_keys():
         return bool(int(flatten_keys))
     return True
 
+def _get_overwrite():
+    overwrite = _query_param('overwrite')
+    if overwrite:
+        return bool(int(overwrite))
+    return False
+
 def _query_param(param, default=None):
     if param in request.query:
         return request.query[param]
     return default
 
 def _get_store(id):
-    global head_cache
     path = _get_repo_path(id)
     if not path in stores:
         try:
-            stores[path] = Store(id, path, head_cache=head_cache)
+            stores[path] = Store(id, path)
         except ValueError:
             abort(abort(404, "Not found: %s" % path))
     return stores[path]
@@ -229,10 +235,9 @@ def run_gc():
         finally:
             time.sleep(app.config['gc_interval'])
 
-def make_app(stores_path='/tmp', cache_enabled=True, cache_type='memory', cache_size=10000, cache_host='localhost', cache_port=6379, cache_ttl=86400, gc_interval=86400, head_cache_size=500000):
+def make_app(stores_path='/tmp', cache_enabled=True, cache_type='memory', cache_size=10000, cache_host='localhost', cache_port=6379, cache_ttl=86400, gc_interval=86400):
     global app
     global cache
-    global head_cache
 
     # monkey patch bottle to increase BaseRequest.MEMFILE_MAX
     BaseRequest.MEMFILE_MAX = 1024000
@@ -250,7 +255,6 @@ def make_app(stores_path='/tmp', cache_enabled=True, cache_type='memory', cache_
         except ImportError:
             pass
     cache = QueryCache(backend=cache_backend, enabled=cache_enabled)
-    head_cache = LocalCache(max_cache=head_cache_size)
     if gc_interval > 0:
         t = threading.Thread(target=run_gc)
         t.setDaemon(True)

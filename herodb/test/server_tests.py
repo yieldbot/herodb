@@ -155,6 +155,42 @@ def test_branch_merge():
     nt.assert_equal(sha['sha'], client.get_branch('test', 'master')['sha'])
 
 @nt.with_setup(setup=setup_hero, teardown=teardown_hero)
+def test_sparse_puts():
+    sha = client.put('test', 'a', {'x': 1, 'y': 2, 'z': {'a': 1}})
+    nt.assert_equal(sha['sha'], client.get_branch('test', 'master')['sha'])
+    t = client.trees('test')
+    nt.assert_true('a' in t)
+    nt.assert_true('x' in t['a'])
+    nt.assert_equal(t['a']['x'], 1)
+    nt.assert_true('y' in t['a'])
+    nt.assert_equal(t['a']['y'], 2)
+    nt.assert_true('a' in t['a']['z'])
+    nt.assert_equal(t['a']['z']['a'], 1)
+
+    sha = client.put('test', 'a', {'x': 2}, overwrite=False)
+    nt.assert_equal(sha['sha'], client.get_branch('test', 'master')['sha'])
+    t = client.trees('test')
+    nt.assert_true('a' in t)
+    nt.assert_true('x' in t['a'])
+    nt.assert_equal(t['a']['x'], 2)
+    nt.assert_true('y' in t['a'])
+    nt.assert_equal(t['a']['y'], 2)
+    nt.assert_true('z' in t['a'])
+    nt.assert_true('a' in t['a']['z'])
+    nt.assert_equal(t['a']['z']['a'], 1)
+
+    sha = client.put('test', 'a', {'x': 3}, overwrite=True)
+    nt.assert_equal(sha['sha'], client.get_branch('test', 'master')['sha'])
+    t = client.trees('test')
+    nt.assert_true('a' in t)
+    nt.assert_true('x' in t['a'])
+    nt.assert_equal(t['a']['x'], 3)
+    nt.assert_true('y' not in t['a'])
+    nt.assert_true('z' in t['a'])
+    nt.assert_true('a' in t['a']['z'])
+    nt.assert_equal(t['a']['z']['a'], 1)
+
+@nt.with_setup(setup=setup_hero, teardown=teardown_hero)
 def test_server_caching():
     client.cache.enabled = False
     sha = client.put('test', 'foo', 'bar')

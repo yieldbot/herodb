@@ -86,11 +86,12 @@ class StoreClient(object):
                 response.raise_for_status()
         return self.cache.get('get', commit_sha, _get, store, key, shallow, branch, commit_sha)
 
-    def put(self, store, key, value, flatten_keys=True, branch='master', author=None, committer=None):
+    def put(self, store, key, value, flatten_keys=True, branch='master', author=None, committer=None, overwrite=False):
         path = _entry_path(store, key)
         payload = json.dumps(value)
         flatten_keys = 1 if flatten_keys else 0
-        params = _build_params(flatten_keys=flatten_keys, branch=branch, author=author, committer=committer)
+        overwrite = 1 if overwrite else 0
+        params = _build_params(flatten_keys=flatten_keys, branch=branch, author=author, committer=committer, overwrite=overwrite)
         headers = {'Content-Type': 'application/json'}
         response = self.session.put(self._url(path), headers=headers, params=params, data=payload)
         if response.status_code == requests.codes.ok:

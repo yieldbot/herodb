@@ -4,7 +4,6 @@ from dulwich.object_store import tree_lookup_path
 from dulwich.index import pathjoin, pathsplit
 from dulwich import diff_tree
 from dulwich.errors import NotTreeError
-from herodb.cache import LocalCache
 from util import which
 import os
 import stat
@@ -14,6 +13,7 @@ import subprocess
 import threading
 import logging
 import sys
+import types
 
 ROOT_PATH = ''
 log = logging.getLogger('herodb.store')
@@ -33,7 +33,7 @@ class Store(object):
     A simple key/value store using git as the backing store.
     """
 
-    def __init__(self, id, repo_path, serializer=None, head_cache=None):
+    def __init__(self, id, repo_path, serializer=None):
         self.id = id
         if os.path.exists(repo_path):
             self.repo = Repo(repo_path)
@@ -44,9 +44,6 @@ class Store(object):
         else:
             self.serializer = serializer
         self.lock = threading.RLock()
-        if head_cache is None:
-            head_cache = LocalCache(max_cache=100000)
-        self.head_cache = head_cache
 
     def gc(self):
         with self.lock:
@@ -70,10 +67,6 @@ class Store(object):
 
     def merge(self, source_branch, target_branch='master', author=None, committer=None):
         with self.lock:
-            if target_branch == 'master':
-                for k in self.head_cache.keys():
-                    if k.startswith(self.id):
-                        self.head_cache.remove(k)
             if source_branch == target_branch:
                 raise ValueError("Cannot merge branch with itself %s" % source_branch)
             target_tree = self._get_object(ROOT_PATH, target_branch)
@@ -124,7 +117,7 @@ class Store(object):
                 keys = key.split('/')
                 min_level = len(filter(None, keys))
                 if shallow:
-                    max_level = min_level+2
+                    max_level = min_level+1
                 else:
                     max_level = sys.maxint
                 tree = self.trees(key, min_level=min_level, max_level=max_level, branch=branch, commit_sha=commit_sha)
@@ -136,10 +129,6 @@ class Store(object):
         return None
 
     def _get_object(self, key, branch='master', commit_sha=None, bypass_head_cache=True):
-        if branch == 'master' and not bypass_head_cache:
-            obj = self.head_cache.get(self._head_cache_key(key), None)
-            if obj:
-                return obj
         try:
             if not commit_sha:
                 commit_sha = self.branch_head(branch)
@@ -175,7 +164,7 @@ class Store(object):
         return out
 
 
-    def put(self, key, value, flatten_keys=True, branch='master', author=None, committer=None):
+    def put(self, key, value, flatten_keys=True, branch='master', author=None, committer=None, overwrite=False):
         """
         Add/Update many key value pairs in the store.  The entries param should be a python
         dict containing one or more key value pairs to store.  The keys can be nested
@@ -195,11 +184,28 @@ class Store(object):
                 merge_heads = [self.branch_head('master')]
             blobs=[]
             msg = ''
-            for (key, value) in e.iteritems():
+            existing_obj = None
+            if overwrite and type(value) == types.DictType:
+                try:
+                    existing_obj = self.get(key, shallow=True, branch=branch)
+                except:
+                    pass
+            if existing_obj:
+                if 'commit_sha' in existing_obj:
+                    del existing_obj['commit_sha']
+                existing_obj = flatten({key: existing_obj})
+            for (k, value) in e.iteritems():
                 blob = Blob.from_string(self.serializer.dumps(value))
                 self.repo.object_store.add_object(blob)
-                blobs.append((key, blob.id, stat.S_IFREG))
-                msg += "Put %s\n" % key
+                blobs.append((k, blob.id, stat.S_IFREG))
+                msg += "Put %s\n" % k
+                if existing_obj and k in existing_obj:
+                    del existing_obj[k]
+            if overwrite and existing_obj:
+                for k in existing_obj:
+                    self.delete(k, branch=branch)
+                    root_tree = self._get_object(ROOT_PATH, branch)
+
             root_id = self._add_tree(root_tree, blobs)
             sha = self.repo.do_commit(
                 tree=root_id, message=msg,
@@ -237,11 +243,6 @@ class Store(object):
             return {'sha': sha}
 
     def _delete(self, key, branch='master'):
-        if branch == 'master':
-            cache_key_prefix = self._head_cache_key(key)
-            for cache_key in self.head_cache.keys():
-                if cache_key.startswith(cache_key_prefix):
-                    self.head_cache.remove(cache_key)
         trees={}
         path = key
         if path:
@@ -258,10 +259,6 @@ class Store(object):
                 del trees[path][entry.path]
         if path:
             while path:
-                if branch == 'master':
-                    cache_path_key = self._head_cache_key(path)
-                    if cache_path_key in self.head_cache:
-                        self.head_cache.remove(cache_path_key)
                 (parent_path, name) = pathsplit(path)
                 trees[parent_path].add(name, stat.S_IFDIR, trees[path].id)
                 self.repo.object_store.add_object(trees[path])
@@ -310,10 +307,6 @@ class Store(object):
             return level, path, node
         root = self._get_object(path, branch=branch, commit_sha=commit_sha)
         bypass_head_cache=False
-        if branch == 'master':
-            cached_root = self.head_cache.get(self._head_cache_key(path))
-            if cached_root is not None and cached_root != root:
-                bypass_head_cache = True
         level = len(filter(None, path.split('/')))
         if min_level is None:
             min_level = 0
@@ -333,15 +326,6 @@ class Store(object):
                     nodes_to_visit.extendleft(children)
                 else:
                     nodes_to_visit.extend(children)
-            if branch == 'master':
-                cache_path_key = self._head_cache_key(path)
-                if bypass_head_cache:
-                    # if we're bypassing the head cache on iteration, then always update
-                    # the head cache here with the latest repo state
-                    self.head_cache.add(cache_path_key, node)
-                elif cache_path_key not in self.head_cache:
-                    # otherwise only update the head cache it the key isn't already present
-                    self.head_cache.add(cache_path_key, node)
             if min_level < level <= max_level:
                 if pattern is not None:
                     if pattern.match(path):
@@ -376,8 +360,6 @@ class Store(object):
     def _tree_entry(self, path, tree_entry, branch='master', bypass_head_cache=False):
         child_path = self._tree_entry_key(path, tree_entry)
         obj = None
-        if branch == 'master' and not bypass_head_cache:
-            obj = self.head_cache.get(self._head_cache_key(child_path))
         if obj is None:
             obj = self.repo[tree_entry.sha]
         return child_path, obj
@@ -418,19 +400,11 @@ class Store(object):
             return newtree
 
         for path, sha, mode in blobs:
-            if branch == 'master':
-                cache_path_key = self._head_cache_key(path)
-                if cache_path_key in self.head_cache:
-                    self.head_cache.remove(cache_path_key)
             tree_path, basename = pathsplit(path)
             tree = add_tree(tree_path)
             tree[basename] = (mode, sha)
 
         def build_tree(path):
-            if branch == 'master':
-                cache_path_key = self._head_cache_key(path)
-                if cache_path_key in self.head_cache:
-                    self.head_cache.remove(cache_path_key)
             if path:
                 tree = self._get_object(path, branch=branch, commit_sha=commit_sha)
                 if not tree:
