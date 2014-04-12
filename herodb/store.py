@@ -14,6 +14,7 @@ import threading
 import logging
 import sys
 import types
+from collections import defaultdict
 
 ROOT_PATH = ''
 log = logging.getLogger('herodb.store')
@@ -139,20 +140,26 @@ class Store(object):
         except NotTreeError:
             return None
 
-    def diff( self, old_sha):
-        """
-            Traverses the diff tree changes and returns a list of changes by change type.
-            :param old_sha: parent commit's sha-1
-            :return: map of objects that changed where the key is the change type and the value is a list of
-            lists of tuples
+    def diff(self, old_sha, new_sha=None):
+        """Show the changed files between OLD_SHA and NEW_SHA
+        
+        If NEW_SHA is not set, it will default to HEAD. The output is a 
+        list of tuples (action, filename)
+
+        :param old_sha: parent commit's sha
+        :param new_sha: another sha, defaults to HEAD
+        :retval: dict
         """
         orig = self._get_object(ROOT_PATH, commit_sha=old_sha)
         new = self._get_object(ROOT_PATH)
+        if new_sha:
+            new = self._get_object(ROOT_PATH, commit_sha=new_sha)
+
         keys = { diff_tree.CHANGE_DELETE: 'delete',
                  diff_tree.CHANGE_ADD: 'add',
                  diff_tree.CHANGE_MODIFY: 'modify'}
 
-        out = { k: [] for k in keys.values() }
+        out = defaultdict(list)
         for change_tree in diff_tree.tree_changes(self.repo.object_store, orig.id, new.id, want_unchanged=False):
             if change_tree.type.lower() == "delete" and change_tree.old.path:
                 # if the change was a delete, we have no tree or blob to yield so return key with no value
@@ -160,7 +167,6 @@ class Store(object):
                 out[change_tree.type].append([(change_tree.old.path, None)])
             else:
                 out[change_tree.type].append(filter(None, self.entries(change_tree.new.path)))
-
         return out
 
 
